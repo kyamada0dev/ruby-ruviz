@@ -15,8 +15,9 @@ use magnus::{function, method, prelude::*, Error, Ruby, TryConvert, Value};
 
 use ruviz::core::PlottingError;
 use ruviz::prelude::{
-    AxisScale, Color, HistogramConfig, IntoPlot, LegendPosition, MarkerStyle, Plot,
+    AxisScale, Color, HistogramConfig, IntoPlot, LegendPosition, LineStyle, MarkerStyle, Plot,
 };
+use ruviz::render::Theme;
 
 const BINDING_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -118,9 +119,66 @@ fn parse_marker(name: &str) -> Result<MarkerStyle, Error> {
     Ok(m)
 }
 
+fn parse_linestyle(s: &str) -> Result<LineStyle, Error> {
+    let key = s.to_ascii_lowercase().replace('_', "-");
+    let ls = match key.as_str() {
+        "solid" => LineStyle::Solid,
+        "dashed" => LineStyle::Dashed,
+        "dotted" => LineStyle::Dotted,
+        "dash-dot" => LineStyle::DashDot,
+        "dash-dot-dot" => LineStyle::DashDotDot,
+        other => {
+            return Err(arg_err(format!(
+                "unknown line style: {other:?} (e.g. :solid, :dashed, :dotted, :dash_dot)"
+            )))
+        }
+    };
+    Ok(ls)
+}
+
+fn parse_theme(s: &str) -> Result<Theme, Error> {
+    let t = match s.to_ascii_lowercase().as_str() {
+        "light" => Theme::light(),
+        "dark" => Theme::dark(),
+        "publication" => Theme::publication(),
+        "minimal" => Theme::minimal(),
+        "seaborn" => Theme::seaborn(),
+        "presentation" => Theme::presentation(),
+        other => {
+            return Err(arg_err(format!(
+                "unknown theme: {other:?} (light, dark, publication, minimal, seaborn, presentation)"
+            )))
+        }
+    };
+    Ok(t)
+}
+
 /// Optional color string -> parsed Color.
 fn opt_color(color: Option<String>) -> Result<Option<Color>, Error> {
     color.as_deref().map(parse_color).transpose()
+}
+
+/// Build the optional style tuple for a reference line: `Some(...)` when any of
+/// color/width/style is given (defaults fill the rest), else `None` (ruviz's
+/// default dashed-gray line).
+fn line_annotation_style(
+    color: Option<String>,
+    width: Option<f64>,
+    style: Option<String>,
+) -> Result<Option<(Color, f32, LineStyle)>, Error> {
+    if color.is_none() && width.is_none() && style.is_none() {
+        return Ok(None);
+    }
+    let c = match color {
+        Some(s) => parse_color(&s)?,
+        None => Color::from_rgb(128, 128, 128),
+    };
+    let w = width.map(|w| w as f32).unwrap_or(1.0);
+    let ls = match style {
+        Some(s) => parse_linestyle(&s)?,
+        None => LineStyle::Dashed,
+    };
+    Ok(Some((c, w, ls)))
 }
 
 // ---- captured state --------------------------------------------------------
@@ -158,6 +216,17 @@ enum Series {
     },
 }
 
+enum Annotation {
+    HLine {
+        y: f64,
+        style: Option<(Color, f32, LineStyle)>,
+    },
+    VLine {
+        x: f64,
+        style: Option<(Color, f32, LineStyle)>,
+    },
+}
+
 #[derive(Default)]
 struct PlotState {
     width_px: Option<u32>,
@@ -167,9 +236,13 @@ struct PlotState {
     ylabel: Option<String>,
     xscale: Option<AxisScale>,
     yscale: Option<AxisScale>,
+    xlim: Option<(f64, f64)>,
+    ylim: Option<(f64, f64)>,
     grid: Option<bool>,
     legend: Option<LegendPosition>,
+    theme: Option<Theme>,
     series: Vec<Series>,
+    annotations: Vec<Annotation>,
 }
 
 #[magnus::wrap(class = "Ruviz::PlotHandle", free_immediately, size)]
@@ -221,6 +294,52 @@ impl PlotHandle {
     fn legend(&self, position: String) -> Result<(), Error> {
         let pos = parse_legend(&position)?;
         self.0.borrow_mut().legend = Some(pos);
+        Ok(())
+    }
+
+    fn theme(&self, name: String) -> Result<(), Error> {
+        let theme = parse_theme(&name)?;
+        self.0.borrow_mut().theme = Some(theme);
+        Ok(())
+    }
+
+    fn xlim(&self, min: f64, max: f64) -> Result<(), Error> {
+        if !(min < max) {
+            return Err(arg_err("xlim: min must be less than max"));
+        }
+        self.0.borrow_mut().xlim = Some((min, max));
+        Ok(())
+    }
+
+    fn ylim(&self, min: f64, max: f64) -> Result<(), Error> {
+        if !(min < max) {
+            return Err(arg_err("ylim: min must be less than max"));
+        }
+        self.0.borrow_mut().ylim = Some((min, max));
+        Ok(())
+    }
+
+    fn hline(
+        &self,
+        y: f64,
+        color: Option<String>,
+        width: Option<f64>,
+        style: Option<String>,
+    ) -> Result<(), Error> {
+        let style = line_annotation_style(color, width, style)?;
+        self.0.borrow_mut().annotations.push(Annotation::HLine { y, style });
+        Ok(())
+    }
+
+    fn vline(
+        &self,
+        x: f64,
+        color: Option<String>,
+        width: Option<f64>,
+        style: Option<String>,
+    ) -> Result<(), Error> {
+        let style = line_annotation_style(color, width, style)?;
+        self.0.borrow_mut().annotations.push(Annotation::VLine { x, style });
         Ok(())
     }
 
@@ -355,6 +474,9 @@ impl PlotHandle {
         if let (Some(w), Some(h)) = (st.width_px, st.height_px) {
             plot = plot.size_px(w, h);
         }
+        if let Some(theme) = &st.theme {
+            plot = plot.theme(theme.clone());
+        }
         if let Some(t) = &st.title {
             plot = plot.title(t.as_str());
         }
@@ -369,6 +491,12 @@ impl PlotHandle {
         }
         if let Some(scale) = st.yscale {
             plot = plot.yscale(scale);
+        }
+        if let Some((min, max)) = st.xlim {
+            plot = plot.xlim(min, max);
+        }
+        if let Some((min, max)) = st.ylim {
+            plot = plot.ylim(min, max);
         }
         if let Some(g) = st.grid {
             plot = plot.grid(g);
@@ -473,6 +601,18 @@ impl PlotHandle {
                 }
             };
         }
+        for a in &st.annotations {
+            plot = match a {
+                Annotation::HLine { y, style } => match style {
+                    Some((c, w, ls)) => plot.hline_styled(*y, *c, *w, ls.clone()),
+                    None => plot.hline(*y),
+                },
+                Annotation::VLine { x, style } => match style {
+                    Some((c, w, ls)) => plot.vline_styled(*x, *c, *w, ls.clone()),
+                    None => plot.vline(*x),
+                },
+            };
+        }
         plot
     }
 
@@ -513,6 +653,11 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     handle.define_method("yscale", method!(PlotHandle::yscale, 2))?;
     handle.define_method("grid", method!(PlotHandle::grid, 1))?;
     handle.define_method("legend", method!(PlotHandle::legend, 1))?;
+    handle.define_method("theme", method!(PlotHandle::theme, 1))?;
+    handle.define_method("xlim", method!(PlotHandle::xlim, 2))?;
+    handle.define_method("ylim", method!(PlotHandle::ylim, 2))?;
+    handle.define_method("hline", method!(PlotHandle::hline, 4))?;
+    handle.define_method("vline", method!(PlotHandle::vline, 4))?;
     handle.define_method("line", method!(PlotHandle::line, 5))?;
     handle.define_method("scatter", method!(PlotHandle::scatter, 7))?;
     handle.define_method("bar", method!(PlotHandle::bar, 5))?;

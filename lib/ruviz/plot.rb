@@ -65,6 +65,37 @@ module Ruviz
       self
     end
 
+    # @param name [Symbol, String] light, dark, publication, minimal, seaborn, presentation
+    def theme(name)
+      @handle.theme(name.to_s)
+      self
+    end
+
+    def xlim(min, max)
+      @handle.xlim(Float(min), Float(max))
+      self
+    end
+
+    def ylim(min, max)
+      @handle.ylim(Float(min), Float(max))
+      self
+    end
+
+    # Horizontal reference line at y. With no style it is a dashed gray line;
+    # pass any of color/width/style to customize.
+    #
+    # @param style [Symbol, String] :solid, :dashed, :dotted, :dash_dot, :dash_dot_dot
+    def hline(y, color: nil, width: nil, style: nil)
+      @handle.hline(Float(y), color&.to_s, width && Float(width), style&.to_s)
+      self
+    end
+
+    # Vertical reference line at x (see {#hline}).
+    def vline(x, color: nil, width: nil, style: nil)
+      @handle.vline(Float(x), color&.to_s, width && Float(width), style&.to_s)
+      self
+    end
+
     # Add a line series.
     #
     # @param x [Array<Numeric>, Numo::NArray, Polars::Series] x values
