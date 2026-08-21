@@ -13,6 +13,7 @@ use std::cell::RefCell;
 
 use magnus::{function, method, prelude::*, Error, Ruby, TryConvert, Value};
 
+use ruviz::core::annotation::{ShapeStyle, TextStyle};
 use ruviz::core::PlottingError;
 use ruviz::prelude::{
     AxisScale, Color, HistogramConfig, IntoPlot, LegendPosition, LineStyle, MarkerStyle, Plot,
@@ -240,6 +241,21 @@ enum Annotation {
         x: f64,
         style: Option<(Color, f32, LineStyle)>,
     },
+    Text {
+        x: f64,
+        y: f64,
+        text: String,
+        color: Option<Color>,
+        size: Option<f32>,
+    },
+    Rect {
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+        color: Option<Color>,
+        line_width: Option<f32>,
+    },
 }
 
 #[derive(Default)]
@@ -355,6 +371,47 @@ impl PlotHandle {
     ) -> Result<(), Error> {
         let style = line_annotation_style(color, width, style)?;
         self.0.borrow_mut().annotations.push(Annotation::VLine { x, style });
+        Ok(())
+    }
+
+    fn annotate_text(
+        &self,
+        x: f64,
+        y: f64,
+        text: String,
+        color: Option<String>,
+        size: Option<f64>,
+    ) -> Result<(), Error> {
+        let color = opt_color(color)?;
+        self.0.borrow_mut().annotations.push(Annotation::Text {
+            x,
+            y,
+            text,
+            color,
+            size: size.map(|s| s as f32),
+        });
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn rect(
+        &self,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+        color: Option<String>,
+        line_width: Option<f64>,
+    ) -> Result<(), Error> {
+        let color = opt_color(color)?;
+        self.0.borrow_mut().annotations.push(Annotation::Rect {
+            x,
+            y,
+            width,
+            height,
+            color,
+            line_width: line_width.map(|w| w as f32),
+        });
         Ok(())
     }
 
@@ -725,6 +782,47 @@ impl PlotHandle {
                     Some((c, w, ls)) => plot.vline_styled(*x, *c, *w, ls.clone()),
                     None => plot.vline(*x),
                 },
+                Annotation::Text {
+                    x,
+                    y,
+                    text,
+                    color,
+                    size,
+                } => {
+                    if color.is_none() && size.is_none() {
+                        plot.text(*x, *y, text.clone())
+                    } else {
+                        let mut ts = TextStyle::new();
+                        if let Some(c) = color {
+                            ts = ts.color(*c);
+                        }
+                        if let Some(s) = size {
+                            ts = ts.font_size(*s);
+                        }
+                        plot.text_styled(*x, *y, text.clone(), ts)
+                    }
+                }
+                Annotation::Rect {
+                    x,
+                    y,
+                    width,
+                    height,
+                    color,
+                    line_width,
+                } => {
+                    if color.is_none() && line_width.is_none() {
+                        plot.rect(*x, *y, *width, *height)
+                    } else {
+                        let mut ss = ShapeStyle::new();
+                        if let Some(c) = color {
+                            ss = ss.fill(*c);
+                        }
+                        if let Some(w) = line_width {
+                            ss = ss.edge_width(*w);
+                        }
+                        plot.rect_styled(*x, *y, *width, *height, ss)
+                    }
+                }
             };
         }
         plot
@@ -772,6 +870,8 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     handle.define_method("ylim", method!(PlotHandle::ylim, 2))?;
     handle.define_method("hline", method!(PlotHandle::hline, 4))?;
     handle.define_method("vline", method!(PlotHandle::vline, 4))?;
+    handle.define_method("annotate_text", method!(PlotHandle::annotate_text, 5))?;
+    handle.define_method("rect", method!(PlotHandle::rect, 6))?;
     handle.define_method("line", method!(PlotHandle::line, 5))?;
     handle.define_method("scatter", method!(PlotHandle::scatter, 7))?;
     handle.define_method("bar", method!(PlotHandle::bar, 5))?;

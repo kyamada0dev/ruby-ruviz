@@ -96,6 +96,23 @@ module Ruviz
       self
     end
 
+    # Text annotation anchored at data coordinates (x, y).
+    #
+    # @param size [Numeric, nil] font size
+    def annotate_text(x, y, text, color: nil, size: nil)
+      @handle.annotate_text(Float(x), Float(y), text.to_s, color&.to_s, size && Float(size))
+      self
+    end
+
+    # Rectangle annotation with lower-left corner at (x, y), in data units.
+    def rect(x, y, width, height, color: nil, line_width: nil)
+      @handle.rect(
+        Float(x), Float(y), Float(width), Float(height),
+        color&.to_s, line_width && Float(line_width)
+      )
+      self
+    end
+
     # Add a line series.
     #
     # @param x [Array<Numeric>, Numo::NArray, Polars::Series] x values
