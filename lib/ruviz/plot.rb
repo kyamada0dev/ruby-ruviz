@@ -117,8 +117,10 @@ module Ruviz
     end
 
     # Native Polars -> Numo (float64), avoiding any Ruby Array intermediate.
+    # Only cast when needed: an already-float64 Series skips a redundant copy.
     def polars_series_to_numo(series)
-      series.cast(Polars::Float64).to_numo
+      series = series.cast(Polars::Float64) unless series.dtype == Polars::Float64
+      series.to_numo
     end
   end
 
