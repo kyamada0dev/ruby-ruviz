@@ -318,6 +318,9 @@ struct PlotState {
     theme: Option<Theme>,
     font_family: Option<String>,
     font_size: Option<f32>,
+    title_size: Option<f32>,
+    legend_font_size: Option<f32>,
+    scale_typography: Option<f32>,
     series: Vec<Series>,
     annotations: Vec<Annotation>,
 }
@@ -389,6 +392,30 @@ impl PlotHandle {
             return Err(arg_err("font_size: must be positive"));
         }
         self.0.borrow_mut().font_size = Some(size as f32);
+        Ok(())
+    }
+
+    fn title_size(&self, size: f64) -> Result<(), Error> {
+        if !(size > 0.0) {
+            return Err(arg_err("title_size: must be positive"));
+        }
+        self.0.borrow_mut().title_size = Some(size as f32);
+        Ok(())
+    }
+
+    fn legend_font_size(&self, size: f64) -> Result<(), Error> {
+        if !(size > 0.0) {
+            return Err(arg_err("legend_font_size: must be positive"));
+        }
+        self.0.borrow_mut().legend_font_size = Some(size as f32);
+        Ok(())
+    }
+
+    fn scale_typography(&self, factor: f64) -> Result<(), Error> {
+        if !(factor > 0.0) {
+            return Err(arg_err("scale_typography: factor must be positive"));
+        }
+        self.0.borrow_mut().scale_typography = Some(factor as f32);
         Ok(())
     }
 
@@ -835,6 +862,15 @@ impl PlotHandle {
         if let Some(s) = st.font_size {
             plot = plot.font_size(s);
         }
+        if let Some(f) = st.scale_typography {
+            plot = plot.scale_typography(f);
+        }
+        if let Some(s) = st.title_size {
+            plot = plot.title_size(s);
+        }
+        if let Some(s) = st.legend_font_size {
+            plot = plot.legend_font_size(s);
+        }
         if let Some(t) = &st.title {
             plot = plot.title(t.as_str());
         }
@@ -1168,6 +1204,9 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     handle.define_method("theme", method!(PlotHandle::theme, 1))?;
     handle.define_method("font_family", method!(PlotHandle::font_family, 1))?;
     handle.define_method("font_size", method!(PlotHandle::font_size, 1))?;
+    handle.define_method("title_size", method!(PlotHandle::title_size, 1))?;
+    handle.define_method("legend_font_size", method!(PlotHandle::legend_font_size, 1))?;
+    handle.define_method("scale_typography", method!(PlotHandle::scale_typography, 1))?;
     handle.define_method("xlim", method!(PlotHandle::xlim, 2))?;
     handle.define_method("ylim", method!(PlotHandle::ylim, 2))?;
     handle.define_method("hline", method!(PlotHandle::hline, 4))?;

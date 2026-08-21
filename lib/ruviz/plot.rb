@@ -85,6 +85,25 @@ module Ruviz
       self
     end
 
+    # Title font size (points).
+    def title_size(size)
+      @handle.title_size(Float(size))
+      self
+    end
+
+    # Legend font size (points).
+    def legend_font_size(size)
+      @handle.legend_font_size(Float(size))
+      self
+    end
+
+    # Scale all typography by a factor (1.0 = unchanged). Handy for high-DPI or
+    # presentation output.
+    def scale_typography(factor)
+      @handle.scale_typography(Float(factor))
+      self
+    end
+
     def xlim(min, max)
       @handle.xlim(Float(min), Float(max))
       self

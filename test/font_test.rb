@@ -43,8 +43,23 @@ class FontTest < Minitest::Test
     assert_raises(ArgumentError) { Ruviz.plot.font_size(-3) }
   end
 
+  def test_title_size_and_legend_size
+    assert png?(render { |p| p.title("t").title_size(22).legend_font_size(10) })
+  end
+
+  def test_scale_typography
+    assert png?(render { |p| p.scale_typography(1.4) })
+  end
+
+  def test_typography_non_positive_raises
+    assert_raises(ArgumentError) { Ruviz.plot.title_size(0) }
+    assert_raises(ArgumentError) { Ruviz.plot.legend_font_size(-1) }
+    assert_raises(ArgumentError) { Ruviz.plot.scale_typography(0) }
+  end
+
   def test_chaining
     plot = Ruviz.plot
     assert_same plot, plot.font_family(:serif).font_size(12)
+             .title_size(20).legend_font_size(11).scale_typography(1.1)
   end
 end
