@@ -14,7 +14,9 @@ use std::cell::RefCell;
 use magnus::{function, method, prelude::*, Error, Ruby, TryConvert, Value};
 
 use ruviz::core::PlottingError;
-use ruviz::prelude::{AxisScale, Color, IntoPlot, LegendPosition, Plot};
+use ruviz::prelude::{
+    AxisScale, Color, HistogramConfig, IntoPlot, LegendPosition, MarkerStyle, Plot,
+};
 
 const BINDING_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -65,7 +67,6 @@ fn parse_scale(name: &str, linthresh: Option<f64>) -> Result<AxisScale, Error> {
 }
 
 fn parse_legend(name: &str) -> Result<LegendPosition, Error> {
-    // Accept both :upper_right and "upper-right".
     let key = name.to_ascii_lowercase().replace('-', "_");
     let pos = match key.as_str() {
         "best" => LegendPosition::Best,
@@ -92,14 +93,69 @@ fn parse_legend(name: &str) -> Result<LegendPosition, Error> {
     Ok(pos)
 }
 
+fn parse_marker(name: &str) -> Result<MarkerStyle, Error> {
+    // Accept both :triangle_down and "triangle-down".
+    let key = name.to_ascii_lowercase().replace('_', "-");
+    let m = match key.as_str() {
+        "circle" => MarkerStyle::Circle,
+        "square" => MarkerStyle::Square,
+        "triangle" => MarkerStyle::Triangle,
+        "triangle-down" => MarkerStyle::TriangleDown,
+        "diamond" => MarkerStyle::Diamond,
+        "plus" => MarkerStyle::Plus,
+        "cross" => MarkerStyle::Cross,
+        "star" => MarkerStyle::Star,
+        "circle-open" => MarkerStyle::CircleOpen,
+        "square-open" => MarkerStyle::SquareOpen,
+        "triangle-open" => MarkerStyle::TriangleOpen,
+        "diamond-open" => MarkerStyle::DiamondOpen,
+        other => {
+            return Err(arg_err(format!(
+                "unknown marker: {other:?} (e.g. :circle, :square, :triangle_down, :diamond_open)"
+            )))
+        }
+    };
+    Ok(m)
+}
+
+/// Optional color string -> parsed Color.
+fn opt_color(color: Option<String>) -> Result<Option<Color>, Error> {
+    color.as_deref().map(parse_color).transpose()
+}
+
 // ---- captured state --------------------------------------------------------
 
-struct SeriesState {
-    x: Vec<f64>,
-    y: Vec<f64>,
-    label: Option<String>,
-    color: Option<Color>,
-    width: Option<f32>,
+enum Series {
+    Line {
+        x: Vec<f64>,
+        y: Vec<f64>,
+        label: Option<String>,
+        color: Option<Color>,
+        width: Option<f32>,
+    },
+    Scatter {
+        x: Vec<f64>,
+        y: Vec<f64>,
+        label: Option<String>,
+        color: Option<Color>,
+        marker: Option<MarkerStyle>,
+        marker_size: Option<f32>,
+        alpha: Option<f32>,
+    },
+    Bar {
+        categories: Vec<String>,
+        values: Vec<f64>,
+        label: Option<String>,
+        color: Option<Color>,
+        alpha: Option<f32>,
+    },
+    Histogram {
+        data: Vec<f64>,
+        bins: Option<usize>,
+        label: Option<String>,
+        color: Option<Color>,
+        alpha: Option<f32>,
+    },
 }
 
 #[derive(Default)]
@@ -113,7 +169,7 @@ struct PlotState {
     yscale: Option<AxisScale>,
     grid: Option<bool>,
     legend: Option<LegendPosition>,
-    series: Vec<SeriesState>,
+    series: Vec<Series>,
 }
 
 #[magnus::wrap(class = "Ruviz::PlotHandle", free_immediately, size)]
@@ -188,13 +244,106 @@ impl PlotHandle {
         if x.is_empty() {
             return Err(arg_err("line: data is empty"));
         }
-        let color = color.as_deref().map(parse_color).transpose()?;
-        self.0.borrow_mut().series.push(SeriesState {
+        let color = opt_color(color)?;
+        self.0.borrow_mut().series.push(Series::Line {
             x,
             y,
             label,
             color,
             width: width.map(|w| w as f32),
+        });
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn scatter(
+        &self,
+        x: Value,
+        y: Value,
+        label: Option<String>,
+        color: Option<String>,
+        marker: Option<String>,
+        marker_size: Option<f64>,
+        alpha: Option<f64>,
+    ) -> Result<(), Error> {
+        let x = extract_f64_vec(x)?;
+        let y = extract_f64_vec(y)?;
+        if x.len() != y.len() {
+            return Err(arg_err(format!(
+                "scatter: x and y must have the same length (got {} and {})",
+                x.len(),
+                y.len()
+            )));
+        }
+        if x.is_empty() {
+            return Err(arg_err("scatter: data is empty"));
+        }
+        let color = opt_color(color)?;
+        let marker = marker.as_deref().map(parse_marker).transpose()?;
+        self.0.borrow_mut().series.push(Series::Scatter {
+            x,
+            y,
+            label,
+            color,
+            marker,
+            marker_size: marker_size.map(|s| s as f32),
+            alpha: alpha.map(|a| a as f32),
+        });
+        Ok(())
+    }
+
+    fn bar(
+        &self,
+        categories: Vec<String>,
+        values: Value,
+        label: Option<String>,
+        color: Option<String>,
+        alpha: Option<f64>,
+    ) -> Result<(), Error> {
+        let values = extract_f64_vec(values)?;
+        if categories.len() != values.len() {
+            return Err(arg_err(format!(
+                "bar: categories and values must have the same length (got {} and {})",
+                categories.len(),
+                values.len()
+            )));
+        }
+        if categories.is_empty() {
+            return Err(arg_err("bar: data is empty"));
+        }
+        let color = opt_color(color)?;
+        self.0.borrow_mut().series.push(Series::Bar {
+            categories,
+            values,
+            label,
+            color,
+            alpha: alpha.map(|a| a as f32),
+        });
+        Ok(())
+    }
+
+    fn histogram(
+        &self,
+        data: Value,
+        bins: Option<usize>,
+        label: Option<String>,
+        color: Option<String>,
+        alpha: Option<f64>,
+    ) -> Result<(), Error> {
+        let data = extract_f64_vec(data)?;
+        if data.is_empty() {
+            return Err(arg_err("histogram: data is empty"));
+        }
+        if bins == Some(0) {
+            return Err(arg_err("histogram: bins must be positive"));
+        }
+        let color = opt_color(color)?;
+        self.0.borrow_mut().series.push(Series::Histogram {
+            data,
+            bins,
+            label,
+            color,
+            alpha: alpha.map(|a| a as f32),
         });
         Ok(())
     }
@@ -228,17 +377,101 @@ impl PlotHandle {
             plot = plot.legend(pos);
         }
         for s in &st.series {
-            let mut pb = plot.line_source(s.x.clone(), s.y.clone());
-            if let Some(l) = &s.label {
-                pb = pb.label(l.clone());
-            }
-            if let Some(c) = s.color {
-                pb = pb.color(c);
-            }
-            if let Some(w) = s.width {
-                pb = pb.line_width(w);
-            }
-            plot = pb.into_plot();
+            plot = match s {
+                Series::Line {
+                    x,
+                    y,
+                    label,
+                    color,
+                    width,
+                } => {
+                    let mut pb = plot.line_source(x.clone(), y.clone());
+                    if let Some(l) = label {
+                        pb = pb.label(l.clone());
+                    }
+                    if let Some(c) = color {
+                        pb = pb.color(*c);
+                    }
+                    if let Some(w) = width {
+                        pb = pb.line_width(*w);
+                    }
+                    pb.into_plot()
+                }
+                Series::Scatter {
+                    x,
+                    y,
+                    label,
+                    color,
+                    marker,
+                    marker_size,
+                    alpha,
+                } => {
+                    let mut pb = plot.scatter(x, y);
+                    if let Some(l) = label {
+                        pb = pb.label(l.clone());
+                    }
+                    if let Some(c) = color {
+                        pb = pb.color(*c);
+                    }
+                    if let Some(m) = marker {
+                        pb = pb.marker(*m);
+                    }
+                    if let Some(ms) = marker_size {
+                        pb = pb.marker_size(*ms);
+                    }
+                    if let Some(a) = alpha {
+                        pb = pb.alpha(*a);
+                    }
+                    pb.into_plot()
+                }
+                Series::Bar {
+                    categories,
+                    values,
+                    label,
+                    color,
+                    alpha,
+                } => {
+                    let mut pb = plot.bar(categories, values);
+                    if let Some(l) = label {
+                        pb = pb.label(l.clone());
+                    }
+                    if let Some(c) = color {
+                        pb = pb.color(*c);
+                    }
+                    if let Some(a) = alpha {
+                        pb = pb.alpha(*a);
+                    }
+                    pb.into_plot()
+                }
+                Series::Histogram {
+                    data,
+                    bins,
+                    label,
+                    color,
+                    alpha,
+                } => {
+                    let mut pb = match bins {
+                        Some(n) => plot.histogram_with(
+                            data,
+                            HistogramConfig {
+                                bins: Some(*n),
+                                ..HistogramConfig::default()
+                            },
+                        ),
+                        None => plot.histogram(data),
+                    };
+                    if let Some(l) = label {
+                        pb = pb.label(l.clone());
+                    }
+                    if let Some(c) = color {
+                        pb = pb.color(*c);
+                    }
+                    if let Some(a) = alpha {
+                        pb = pb.alpha(*a);
+                    }
+                    pb.into_plot()
+                }
+            };
         }
         plot
     }
@@ -281,6 +514,9 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     handle.define_method("grid", method!(PlotHandle::grid, 1))?;
     handle.define_method("legend", method!(PlotHandle::legend, 1))?;
     handle.define_method("line", method!(PlotHandle::line, 5))?;
+    handle.define_method("scatter", method!(PlotHandle::scatter, 7))?;
+    handle.define_method("bar", method!(PlotHandle::bar, 5))?;
+    handle.define_method("histogram", method!(PlotHandle::histogram, 5))?;
     handle.define_method("save", method!(PlotHandle::save, 1))?;
 
     Ok(())

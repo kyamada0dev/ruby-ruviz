@@ -80,6 +80,51 @@ module Ruviz
       self
     end
 
+    # Add a scatter series.
+    #
+    # @param marker [Symbol, String] e.g. :circle, :square, :triangle_down, :diamond_open
+    def scatter(x, y, label: nil, color: nil, marker: nil, marker_size: nil, alpha: nil)
+      @handle.scatter(
+        coerce_data(x),
+        coerce_data(y),
+        label&.to_s,
+        color&.to_s,
+        marker&.to_s,
+        marker_size && Float(marker_size),
+        alpha && Float(alpha)
+      )
+      self
+    end
+
+    # Add a bar series.
+    #
+    # @param categories [Array] category labels (stringified)
+    # @param values [Array<Numeric>, Numo::NArray, Polars::Series]
+    def bar(categories, values, label: nil, color: nil, alpha: nil)
+      @handle.bar(
+        Array(categories).map(&:to_s),
+        coerce_data(values),
+        label&.to_s,
+        color&.to_s,
+        alpha && Float(alpha)
+      )
+      self
+    end
+
+    # Add a histogram series.
+    #
+    # @param bins [Integer, nil] number of bins (auto if nil)
+    def histogram(data, bins: nil, label: nil, color: nil, alpha: nil)
+      @handle.histogram(
+        coerce_data(data),
+        bins && Integer(bins),
+        label&.to_s,
+        color&.to_s,
+        alpha && Float(alpha)
+      )
+      self
+    end
+
     # Render and write the plot. Format is chosen by the file extension
     # (.png, .svg, .pdf); defaults to PNG.
     #
