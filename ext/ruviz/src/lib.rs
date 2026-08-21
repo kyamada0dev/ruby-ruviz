@@ -214,6 +214,21 @@ enum Series {
         color: Option<Color>,
         alpha: Option<f32>,
     },
+    Area {
+        x: Vec<f64>,
+        y: Vec<f64>,
+        baseline: f64,
+        label: Option<String>,
+        color: Option<Color>,
+        width: Option<f32>,
+        alpha: Option<f32>,
+    },
+    BoxPlot {
+        data: Vec<f64>,
+        label: Option<String>,
+        color: Option<Color>,
+        alpha: Option<f32>,
+    },
 }
 
 enum Annotation {
@@ -467,6 +482,63 @@ impl PlotHandle {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn area(
+        &self,
+        x: Value,
+        y: Value,
+        baseline: f64,
+        label: Option<String>,
+        color: Option<String>,
+        width: Option<f64>,
+        alpha: Option<f64>,
+    ) -> Result<(), Error> {
+        let x = extract_f64_vec(x)?;
+        let y = extract_f64_vec(y)?;
+        if x.len() != y.len() {
+            return Err(arg_err(format!(
+                "area: x and y must have the same length (got {} and {})",
+                x.len(),
+                y.len()
+            )));
+        }
+        if x.is_empty() {
+            return Err(arg_err("area: data is empty"));
+        }
+        let color = opt_color(color)?;
+        self.0.borrow_mut().series.push(Series::Area {
+            x,
+            y,
+            baseline,
+            label,
+            color,
+            width: width.map(|w| w as f32),
+            alpha: alpha.map(|a| a as f32),
+        });
+        Ok(())
+    }
+
+    fn boxplot(
+        &self,
+        data: Value,
+        label: Option<String>,
+        color: Option<String>,
+        alpha: Option<f64>,
+    ) -> Result<(), Error> {
+        let data = extract_f64_vec(data)?;
+        if data.is_empty() {
+            return Err(arg_err("boxplot: data is empty"));
+        }
+        let color = opt_color(color)?;
+        self.0.borrow_mut().series.push(Series::BoxPlot {
+            data,
+            label,
+            color,
+            alpha: alpha.map(|a| a as f32),
+        });
+        Ok(())
+    }
+
     /// Replay the captured state onto a fresh ruviz `Plot`.
     fn build_plot(&self) -> Plot {
         let st = self.0.borrow();
@@ -599,6 +671,48 @@ impl PlotHandle {
                     }
                     pb.into_plot()
                 }
+                Series::Area {
+                    x,
+                    y,
+                    baseline,
+                    label,
+                    color,
+                    width,
+                    alpha,
+                } => {
+                    let mut pb = plot.area(x, y, *baseline);
+                    if let Some(l) = label {
+                        pb = pb.label(l.clone());
+                    }
+                    if let Some(c) = color {
+                        pb = pb.color(*c);
+                    }
+                    if let Some(w) = width {
+                        pb = pb.line_width(*w);
+                    }
+                    if let Some(a) = alpha {
+                        pb = pb.alpha(*a);
+                    }
+                    pb.into_plot()
+                }
+                Series::BoxPlot {
+                    data,
+                    label,
+                    color,
+                    alpha,
+                } => {
+                    let mut pb = plot.boxplot(data);
+                    if let Some(l) = label {
+                        pb = pb.label(l.clone());
+                    }
+                    if let Some(c) = color {
+                        pb = pb.color(*c);
+                    }
+                    if let Some(a) = alpha {
+                        pb = pb.alpha(*a);
+                    }
+                    pb.into_plot()
+                }
             };
         }
         for a in &st.annotations {
@@ -662,6 +776,8 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     handle.define_method("scatter", method!(PlotHandle::scatter, 7))?;
     handle.define_method("bar", method!(PlotHandle::bar, 5))?;
     handle.define_method("histogram", method!(PlotHandle::histogram, 5))?;
+    handle.define_method("area", method!(PlotHandle::area, 7))?;
+    handle.define_method("boxplot", method!(PlotHandle::boxplot, 4))?;
     handle.define_method("save", method!(PlotHandle::save, 1))?;
 
     Ok(())

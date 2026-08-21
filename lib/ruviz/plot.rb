@@ -156,6 +156,31 @@ module Ruviz
       self
     end
 
+    # Add a filled area series between the curve and +baseline+.
+    def area(x, y, baseline: 0.0, label: nil, color: nil, width: nil, alpha: nil)
+      @handle.area(
+        coerce_data(x),
+        coerce_data(y),
+        Float(baseline),
+        label&.to_s,
+        color&.to_s,
+        width && Float(width),
+        alpha && Float(alpha)
+      )
+      self
+    end
+
+    # Add a box-and-whisker series from a 1-D sample.
+    def boxplot(data, label: nil, color: nil, alpha: nil)
+      @handle.boxplot(
+        coerce_data(data),
+        label&.to_s,
+        color&.to_s,
+        alpha && Float(alpha)
+      )
+      self
+    end
+
     # Render and write the plot. Format is chosen by the file extension
     # (.png, .svg, .pdf); defaults to PNG.
     #
