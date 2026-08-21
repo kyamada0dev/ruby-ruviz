@@ -47,6 +47,16 @@ fn extract_f64_vec(val: Value) -> Result<Vec<f64>, Error> {
     }
 }
 
+/// Extract 2-D numeric data into `Vec<Vec<f64>>` (Numo 2-D native buffer, else a
+/// Ruby Array of Arrays).
+fn extract_f64_matrix(val: Value) -> Result<Vec<Vec<f64>>, Error> {
+    if numo::is_numo(val) {
+        numo::to_f64_matrix(val)
+    } else {
+        Vec::<Vec<f64>>::try_convert(val)
+    }
+}
+
 // ---- name -> enum parsing (tables mirror ruviz Python native_handle.rs) -----
 
 fn parse_color(s: &str) -> Result<Color, Error> {
@@ -237,6 +247,16 @@ enum Series {
         label: Option<String>,
         color: Option<Color>,
         alpha: Option<f32>,
+    },
+    Heatmap {
+        matrix: Vec<Vec<f64>>,
+    },
+    Contour {
+        x: Vec<f64>,
+        y: Vec<f64>,
+        z: Vec<f64>,
+        levels: Option<usize>,
+        filled: Option<bool>,
     },
 }
 
@@ -665,6 +685,55 @@ impl PlotHandle {
         self.push_dist(DistKind::Violin, "violin", data, label, color, alpha)
     }
 
+    fn heatmap(&self, data: Value) -> Result<(), Error> {
+        let matrix = extract_f64_matrix(data)?;
+        if matrix.is_empty() || matrix[0].is_empty() {
+            return Err(arg_err("heatmap: data is empty"));
+        }
+        let cols = matrix[0].len();
+        if matrix.iter().any(|r| r.len() != cols) {
+            return Err(arg_err("heatmap: all rows must have the same length"));
+        }
+        self.0.borrow_mut().series.push(Series::Heatmap { matrix });
+        Ok(())
+    }
+
+    fn contour(
+        &self,
+        x: Value,
+        y: Value,
+        z: Value,
+        levels: Option<usize>,
+        filled: Option<bool>,
+    ) -> Result<(), Error> {
+        let x = extract_f64_vec(x)?;
+        let y = extract_f64_vec(y)?;
+        let z = extract_f64_vec(z)?;
+        if x.is_empty() || y.is_empty() {
+            return Err(arg_err("contour: x and y must be non-empty"));
+        }
+        if z.len() != x.len() * y.len() {
+            return Err(arg_err(format!(
+                "contour: z length ({}) must equal x.len()*y.len() ({}*{}={})",
+                z.len(),
+                x.len(),
+                y.len(),
+                x.len() * y.len()
+            )));
+        }
+        if levels == Some(0) {
+            return Err(arg_err("contour: levels must be positive"));
+        }
+        self.0.borrow_mut().series.push(Series::Contour {
+            x,
+            y,
+            z,
+            levels,
+            filled,
+        });
+        Ok(())
+    }
+
     /// Replay the captured state onto a fresh ruviz `Plot`.
     fn build_plot(&self) -> Plot {
         let st = self.0.borrow();
@@ -869,6 +938,23 @@ impl PlotHandle {
                         DistKind::Violin => styled!(plot.violin(data)),
                     }
                 }
+                Series::Heatmap { matrix } => plot.heatmap(matrix).into_plot(),
+                Series::Contour {
+                    x,
+                    y,
+                    z,
+                    levels,
+                    filled,
+                } => {
+                    let mut pb = plot.contour(x, y, z);
+                    if let Some(n) = levels {
+                        pb = pb.levels(*n);
+                    }
+                    if let Some(f) = filled {
+                        pb = pb.filled(*f);
+                    }
+                    pb.into_plot()
+                }
             };
         }
         for a in &st.annotations {
@@ -980,6 +1066,8 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     handle.define_method("kde", method!(PlotHandle::kde, 4))?;
     handle.define_method("ecdf", method!(PlotHandle::ecdf, 4))?;
     handle.define_method("violin", method!(PlotHandle::violin, 4))?;
+    handle.define_method("heatmap", method!(PlotHandle::heatmap, 1))?;
+    handle.define_method("contour", method!(PlotHandle::contour, 5))?;
     handle.define_method("save", method!(PlotHandle::save, 1))?;
 
     Ok(())

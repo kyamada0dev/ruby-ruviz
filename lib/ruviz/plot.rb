@@ -216,6 +216,30 @@ module Ruviz
       self
     end
 
+    # Heatmap of a 2-D matrix.
+    #
+    # @param data [Array<Array<Numeric>>, Numo::NArray, Polars::DataFrame]
+    def heatmap(data)
+      @handle.heatmap(coerce_matrix(data))
+      self
+    end
+
+    # Contour plot. +x+ (nx) and +y+ (ny) are 1-D axes; +z+ is a flat, row-major
+    # grid of length nx*ny (or any 2-D data, which is flattened).
+    #
+    # @param levels [Integer, nil] number of contour levels
+    # @param filled [Boolean, nil] filled contours
+    def contour(x, y, z, levels: nil, filled: nil)
+      @handle.contour(
+        coerce_data(x),
+        coerce_data(y),
+        coerce_data(flatten_2d(z)),
+        levels && Integer(levels),
+        filled.nil? ? nil : (filled ? true : false)
+      )
+      self
+    end
+
     # Render and write the plot. Format is chosen by the file extension
     # (.png, .svg, .pdf); defaults to PNG.
     #
@@ -242,6 +266,24 @@ module Ruviz
       return values.to_a if values.respond_to?(:to_a)
 
       raise ArgumentError, "unsupported data type: #{values.class}"
+    end
+
+    # A 2-D matrix argument: a Ruby Array of Arrays or a Numo::NArray goes to
+    # Rust as-is; a Polars DataFrame is converted natively via to_numo.
+    def coerce_matrix(values)
+      return values if values.is_a?(::Array) || numo_narray?(values)
+      return values.to_numo if values.respond_to?(:to_numo)
+
+      raise ArgumentError, "expected a 2-D Array or Numo::NArray (got #{values.class})"
+    end
+
+    # Flatten a 2-D grid (Numo 2-D or Array-of-Arrays) to a row-major 1-D form;
+    # already-1-D data passes through.
+    def flatten_2d(z)
+      return z.ndim >= 2 ? z.flatten : z if numo_narray?(z)
+      return z.flatten if z.is_a?(::Array) && z.first.is_a?(::Array)
+
+      z
     end
 
     def numo_narray?(values)

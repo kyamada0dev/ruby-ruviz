@@ -7,8 +7,12 @@
 // numeric dtypes — never a per-element Ruby Object round-trip (spec §8, §23).
 
 use magnus::rb_sys::AsRawValue;
-use magnus::{prelude::*, Error, Value};
+use magnus::{prelude::*, Error, RClass, RModule, RString, Ruby, Value};
 use rb_sys::StableApiDefinition;
+
+fn arg_err(msg: impl Into<String>) -> Error {
+    Error::new(magnus::exception::arg_error(), msg.into())
+}
 
 // numo-narray-alt narray.h layout (must stay in sync):
 //   narray_t     : ndim(u8) type(u8) flag[2] elmsz(u16) size shape* reduce  = 32B
@@ -134,4 +138,37 @@ pub fn to_f64_vec(val: Value) -> Result<Vec<f64>, Error> {
     // Fallback: public API only (view / unsupported dtype / byte-swapped / drift).
     let arr: Value = val.funcall("to_a", ())?;
     magnus::TryConvert::try_convert(arr)
+}
+
+fn dfloat_class(ruby: &Ruby) -> Result<RClass, Error> {
+    let numo: RModule = ruby.class_object().const_get("Numo")?;
+    numo.const_get("DFloat")
+}
+
+/// Convert a 2-D Numo NArray to `Vec<Vec<f64>>` (row-major).
+///
+/// The array is cast to a contiguous native-endian Numo::DFloat and read in bulk
+/// via `to_binary` (one memcpy, no per-element boxing); any numeric dtype, view
+/// or byte order is handled by the cast.
+pub fn to_f64_matrix(val: Value) -> Result<Vec<Vec<f64>>, Error> {
+    let ndim: usize = val.funcall("ndim", ())?;
+    if ndim != 2 {
+        return Err(arg_err(format!("expected a 2-D array, got ndim={ndim}")));
+    }
+    let shape: Vec<usize> = val.funcall("shape", ())?;
+    let (rows, cols) = (shape[0], shape[1]);
+
+    let ruby = Ruby::get().map_err(|_| arg_err("no Ruby runtime"))?;
+    let df: Value = dfloat_class(&ruby)?.funcall("cast", (val,))?;
+    let bytes: RString = df.funcall("to_binary", ())?;
+    // Safety: fully copied out before returning; no GC-triggering call in between.
+    let slice: &[u8] = unsafe { bytes.as_slice() };
+    let flat: Vec<f64> = slice
+        .chunks_exact(8)
+        .map(|b| f64::from_ne_bytes(b.try_into().unwrap()))
+        .collect();
+
+    Ok((0..rows)
+        .map(|i| flat[i * cols..(i + 1) * cols].to_vec())
+        .collect())
 }
