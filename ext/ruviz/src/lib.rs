@@ -7,9 +7,11 @@
 // fluent chaining and keyword handling live in the Ruby facade (lib/ruviz);
 // this layer stays thin: validate args, mutate state, build, render, map errors.
 
+mod numo;
+
 use std::cell::RefCell;
 
-use magnus::{function, method, prelude::*, Error, Ruby};
+use magnus::{function, method, prelude::*, Error, Ruby, TryConvert, Value};
 
 use ruviz::core::PlottingError;
 use ruviz::prelude::{AxisScale, Color, IntoPlot, LegendPosition, Plot};
@@ -26,6 +28,19 @@ fn arg_err(msg: impl Into<String>) -> Error {
 /// ruviz render / IO failures -> RuntimeError (Ruviz::Error at the Ruby layer).
 fn render_err(e: PlottingError) -> Error {
     Error::new(magnus::exception::runtime_error(), format!("ruviz: {e}"))
+}
+
+/// Extract numeric 1-D data into `Vec<f64>`.
+///
+/// Numo::NArray goes through the native-buffer fast path (no Ruby Array); Polars
+/// Series are converted to Numo by the Ruby facade before they reach here, so
+/// they take the same path. Anything else is treated as a Ruby Array.
+fn extract_f64_vec(val: Value) -> Result<Vec<f64>, Error> {
+    if numo::is_numo(val) {
+        numo::to_f64_vec(val)
+    } else {
+        Vec::<f64>::try_convert(val)
+    }
 }
 
 // ---- name -> enum parsing (tables mirror ruviz Python native_handle.rs) -----
@@ -155,12 +170,14 @@ impl PlotHandle {
 
     fn line(
         &self,
-        x: Vec<f64>,
-        y: Vec<f64>,
+        x: Value,
+        y: Value,
         label: Option<String>,
         color: Option<String>,
         width: Option<f64>,
     ) -> Result<(), Error> {
+        let x = extract_f64_vec(x)?;
+        let y = extract_f64_vec(y)?;
         if x.len() != y.len() {
             return Err(arg_err(format!(
                 "line: x and y must have the same length (got {} and {})",

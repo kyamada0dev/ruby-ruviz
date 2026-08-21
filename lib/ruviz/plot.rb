@@ -94,14 +94,31 @@ module Ruviz
 
     # Normalize a data argument into something the native `line` accepts.
     #
-    # Phase 3 supports Ruby Array; Numo::NArray and Polars Series get native
-    # buffer paths in later phases. Until then, objects that respond to
-    # +to_a+ are converted here as a convenience (not for large data).
+    # - Ruby Array and Numo::NArray are passed straight to Rust (Numo is read
+    #   through its native buffer there — no Ruby Array is materialized).
+    # - Polars Series are converted to a Numo array via the Polars binding's
+    #   own +to_numo+ (native, not +to_a+), then take the same buffer path.
+    # - Anything else responding to +to_a+ is accepted as a convenience.
     def coerce_data(values)
       return values if values.is_a?(::Array)
+      return values if numo_narray?(values)
+      return polars_series_to_numo(values) if polars_series?(values)
       return values.to_a if values.respond_to?(:to_a)
 
       raise ArgumentError, "unsupported data type: #{values.class}"
+    end
+
+    def numo_narray?(values)
+      defined?(Numo::NArray) && values.is_a?(Numo::NArray)
+    end
+
+    def polars_series?(values)
+      defined?(Polars::Series) && values.is_a?(Polars::Series)
+    end
+
+    # Native Polars -> Numo (float64), avoiding any Ruby Array intermediate.
+    def polars_series_to_numo(series)
+      series.cast(Polars::Float64).to_numo
     end
   end
 

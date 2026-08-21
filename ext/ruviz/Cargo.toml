@@ -11,6 +11,9 @@ crate-type = ["cdylib"]
 
 [dependencies]
 magnus = { version = "0.8", features = ["rb-sys"] }
+# Used only for Numo::NArray native-buffer access (rb_sys stable API +
+# rtypeddata_get_data); see src/numo.rs.
+rb-sys = "0.9"
 # PNG rendering and SVG export are always available in ruviz; `pdf` gates PDF
 # export and `parallel` speeds up rendering. Mirrors the Python binding's set
 # minus 3d (2D MVP). `default-features = false` keeps the desktop/interactive
