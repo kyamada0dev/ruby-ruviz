@@ -198,6 +198,24 @@ module Ruviz
       self
     end
 
+    # Kernel density estimate of a 1-D sample.
+    def kde(data, label: nil, color: nil, alpha: nil)
+      @handle.kde(coerce_data(data), label&.to_s, color&.to_s, alpha && Float(alpha))
+      self
+    end
+
+    # Empirical cumulative distribution of a 1-D sample.
+    def ecdf(data, label: nil, color: nil, alpha: nil)
+      @handle.ecdf(coerce_data(data), label&.to_s, color&.to_s, alpha && Float(alpha))
+      self
+    end
+
+    # Violin plot of a 1-D sample.
+    def violin(data, label: nil, color: nil, alpha: nil)
+      @handle.violin(coerce_data(data), label&.to_s, color&.to_s, alpha && Float(alpha))
+      self
+    end
+
     # Render and write the plot. Format is chosen by the file extension
     # (.png, .svg, .pdf); defaults to PNG.
     #

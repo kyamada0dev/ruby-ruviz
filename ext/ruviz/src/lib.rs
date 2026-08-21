@@ -230,6 +230,21 @@ enum Series {
         color: Option<Color>,
         alpha: Option<f32>,
     },
+    // kde / ecdf / violin all take a 1-D sample and the same generic styling.
+    Dist {
+        kind: DistKind,
+        data: Vec<f64>,
+        label: Option<String>,
+        color: Option<Color>,
+        alpha: Option<f32>,
+    },
+}
+
+#[derive(Clone, Copy)]
+enum DistKind {
+    Kde,
+    Ecdf,
+    Violin,
 }
 
 enum Annotation {
@@ -596,6 +611,60 @@ impl PlotHandle {
         Ok(())
     }
 
+    fn push_dist(
+        &self,
+        kind: DistKind,
+        who: &str,
+        data: Value,
+        label: Option<String>,
+        color: Option<String>,
+        alpha: Option<f64>,
+    ) -> Result<(), Error> {
+        let data = extract_f64_vec(data)?;
+        if data.is_empty() {
+            return Err(arg_err(format!("{who}: data is empty")));
+        }
+        let color = opt_color(color)?;
+        self.0.borrow_mut().series.push(Series::Dist {
+            kind,
+            data,
+            label,
+            color,
+            alpha: alpha.map(|a| a as f32),
+        });
+        Ok(())
+    }
+
+    fn kde(
+        &self,
+        data: Value,
+        label: Option<String>,
+        color: Option<String>,
+        alpha: Option<f64>,
+    ) -> Result<(), Error> {
+        self.push_dist(DistKind::Kde, "kde", data, label, color, alpha)
+    }
+
+    fn ecdf(
+        &self,
+        data: Value,
+        label: Option<String>,
+        color: Option<String>,
+        alpha: Option<f64>,
+    ) -> Result<(), Error> {
+        self.push_dist(DistKind::Ecdf, "ecdf", data, label, color, alpha)
+    }
+
+    fn violin(
+        &self,
+        data: Value,
+        label: Option<String>,
+        color: Option<String>,
+        alpha: Option<f64>,
+    ) -> Result<(), Error> {
+        self.push_dist(DistKind::Violin, "violin", data, label, color, alpha)
+    }
+
     /// Replay the captured state onto a fresh ruviz `Plot`.
     fn build_plot(&self) -> Plot {
         let st = self.0.borrow();
@@ -770,6 +839,36 @@ impl PlotHandle {
                     }
                     pb.into_plot()
                 }
+                Series::Dist {
+                    kind,
+                    data,
+                    label,
+                    color,
+                    alpha,
+                } => {
+                    // kde/ecdf/violin return different builder types, so apply the
+                    // shared styling + finalize inside each arm via a local macro.
+                    macro_rules! styled {
+                        ($pb:expr) => {{
+                            let mut pb = $pb;
+                            if let Some(l) = label {
+                                pb = pb.label(l.clone());
+                            }
+                            if let Some(c) = color {
+                                pb = pb.color(*c);
+                            }
+                            if let Some(a) = alpha {
+                                pb = pb.alpha(*a);
+                            }
+                            pb.into_plot()
+                        }};
+                    }
+                    match kind {
+                        DistKind::Kde => styled!(plot.kde(data)),
+                        DistKind::Ecdf => styled!(plot.ecdf(data)),
+                        DistKind::Violin => styled!(plot.violin(data)),
+                    }
+                }
             };
         }
         for a in &st.annotations {
@@ -878,6 +977,9 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     handle.define_method("histogram", method!(PlotHandle::histogram, 5))?;
     handle.define_method("area", method!(PlotHandle::area, 7))?;
     handle.define_method("boxplot", method!(PlotHandle::boxplot, 4))?;
+    handle.define_method("kde", method!(PlotHandle::kde, 4))?;
+    handle.define_method("ecdf", method!(PlotHandle::ecdf, 4))?;
+    handle.define_method("violin", method!(PlotHandle::violin, 4))?;
     handle.define_method("save", method!(PlotHandle::save, 1))?;
 
     Ok(())
