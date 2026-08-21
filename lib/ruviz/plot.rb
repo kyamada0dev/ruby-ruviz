@@ -71,6 +71,20 @@ module Ruviz
       self
     end
 
+    # Set the font family for all text. Accepts a generic family (:serif,
+    # :sans_serif, :monospace, ...) or a specific installed family name such as
+    # "JetBrainsMono Nerd Font Mono". Resolution uses the system font database.
+    def font_family(name)
+      @handle.font_family(name.to_s)
+      self
+    end
+
+    # Base font size (points) for all text.
+    def font_size(size)
+      @handle.font_size(Float(size))
+      self
+    end
+
     def xlim(min, max)
       @handle.xlim(Float(min), Float(max))
       self

@@ -316,6 +316,8 @@ struct PlotState {
     grid: Option<bool>,
     legend: Option<LegendPosition>,
     theme: Option<Theme>,
+    font_family: Option<String>,
+    font_size: Option<f32>,
     series: Vec<Series>,
     annotations: Vec<Annotation>,
 }
@@ -375,6 +377,18 @@ impl PlotHandle {
     fn theme(&self, name: String) -> Result<(), Error> {
         let theme = parse_theme(&name)?;
         self.0.borrow_mut().theme = Some(theme);
+        Ok(())
+    }
+
+    fn font_family(&self, name: String) {
+        self.0.borrow_mut().font_family = Some(name);
+    }
+
+    fn font_size(&self, size: f64) -> Result<(), Error> {
+        if !(size > 0.0) {
+            return Err(arg_err("font_size: must be positive"));
+        }
+        self.0.borrow_mut().font_size = Some(size as f32);
         Ok(())
     }
 
@@ -815,6 +829,12 @@ impl PlotHandle {
         if let Some(theme) = &st.theme {
             plot = plot.theme(theme.clone());
         }
+        if let Some(f) = &st.font_family {
+            plot = plot.font_family(f.as_str());
+        }
+        if let Some(s) = st.font_size {
+            plot = plot.font_size(s);
+        }
         if let Some(t) = &st.title {
             plot = plot.title(t.as_str());
         }
@@ -1146,6 +1166,8 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     handle.define_method("grid", method!(PlotHandle::grid, 1))?;
     handle.define_method("legend", method!(PlotHandle::legend, 1))?;
     handle.define_method("theme", method!(PlotHandle::theme, 1))?;
+    handle.define_method("font_family", method!(PlotHandle::font_family, 1))?;
+    handle.define_method("font_size", method!(PlotHandle::font_size, 1))?;
     handle.define_method("xlim", method!(PlotHandle::xlim, 2))?;
     handle.define_method("ylim", method!(PlotHandle::ylim, 2))?;
     handle.define_method("hline", method!(PlotHandle::hline, 4))?;
