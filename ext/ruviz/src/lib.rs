@@ -258,6 +258,15 @@ enum Series {
         levels: Option<usize>,
         filled: Option<bool>,
     },
+    Pie {
+        values: Vec<f64>,
+        labels: Option<Vec<String>>,
+        donut: Option<f64>,
+    },
+    Radar {
+        labels: Vec<String>,
+        series: Vec<(Option<String>, Vec<f64>)>,
+    },
 }
 
 #[derive(Clone, Copy)]
@@ -734,6 +743,68 @@ impl PlotHandle {
         Ok(())
     }
 
+    fn pie(
+        &self,
+        values: Value,
+        labels: Option<Vec<String>>,
+        donut: Option<f64>,
+    ) -> Result<(), Error> {
+        let values = extract_f64_vec(values)?;
+        if values.is_empty() {
+            return Err(arg_err("pie: data is empty"));
+        }
+        if let Some(l) = &labels {
+            if l.len() != values.len() {
+                return Err(arg_err(format!(
+                    "pie: labels ({}) must match values ({})",
+                    l.len(),
+                    values.len()
+                )));
+            }
+        }
+        if let Some(d) = donut {
+            if !(0.0..1.0).contains(&d) {
+                return Err(arg_err("pie: donut ratio must be in [0, 1)"));
+            }
+        }
+        self.0.borrow_mut().series.push(Series::Pie {
+            values,
+            labels,
+            donut,
+        });
+        Ok(())
+    }
+
+    fn radar(
+        &self,
+        labels: Vec<String>,
+        names: Vec<Option<String>>,
+        values_list: Vec<Vec<f64>>,
+    ) -> Result<(), Error> {
+        if labels.is_empty() {
+            return Err(arg_err("radar: labels are empty"));
+        }
+        if names.len() != values_list.len() {
+            return Err(arg_err("radar: names and series count mismatch"));
+        }
+        if values_list.is_empty() {
+            return Err(arg_err("radar: at least one series is required"));
+        }
+        for (i, vals) in values_list.iter().enumerate() {
+            if vals.len() != labels.len() {
+                return Err(arg_err(format!(
+                    "radar: series {} has {} values but there are {} labels",
+                    i,
+                    vals.len(),
+                    labels.len()
+                )));
+            }
+        }
+        let series = names.into_iter().zip(values_list).collect();
+        self.0.borrow_mut().series.push(Series::Radar { labels, series });
+        Ok(())
+    }
+
     /// Replay the captured state onto a fresh ruviz `Plot`.
     fn build_plot(&self) -> Plot {
         let st = self.0.borrow();
@@ -955,6 +1026,30 @@ impl PlotHandle {
                     }
                     pb.into_plot()
                 }
+                Series::Pie {
+                    values,
+                    labels,
+                    donut,
+                } => {
+                    let mut pb = plot.pie(values);
+                    if let Some(l) = labels {
+                        pb = pb.labels(l);
+                    }
+                    if let Some(d) = donut {
+                        pb = pb.donut(*d);
+                    }
+                    pb.into_plot()
+                }
+                Series::Radar { labels, series } => {
+                    let mut pb = plot.radar(labels);
+                    for (name, vals) in series {
+                        pb = match name {
+                            Some(n) => pb.add_series(n.clone(), vals),
+                            None => pb.series(vals),
+                        };
+                    }
+                    pb.into_plot()
+                }
             };
         }
         for a in &st.annotations {
@@ -1068,6 +1163,8 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     handle.define_method("violin", method!(PlotHandle::violin, 4))?;
     handle.define_method("heatmap", method!(PlotHandle::heatmap, 1))?;
     handle.define_method("contour", method!(PlotHandle::contour, 5))?;
+    handle.define_method("pie", method!(PlotHandle::pie, 3))?;
+    handle.define_method("radar", method!(PlotHandle::radar, 3))?;
     handle.define_method("save", method!(PlotHandle::save, 1))?;
 
     Ok(())

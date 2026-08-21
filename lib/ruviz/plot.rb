@@ -240,6 +240,31 @@ module Ruviz
       self
     end
 
+    # Pie (or donut) chart from a 1-D set of slice values.
+    #
+    # @param labels [Array, nil] slice labels (must match values length)
+    # @param donut [Float, nil] hole ratio in [0, 1) for a donut chart
+    def pie(values, labels: nil, donut: nil)
+      @handle.pie(
+        coerce_data(values),
+        labels && Array(labels).map(&:to_s),
+        donut && Float(donut)
+      )
+      self
+    end
+
+    # Radar (spider) chart.
+    #
+    # @param labels [Array] the axis categories
+    # @param series [Hash, Array, Numo::NArray] one or more series. Accepts a
+    #   Hash of name => values, an Array of {name:, values:} hashes, an Array of
+    #   value-arrays (unnamed), or a single value-array.
+    def radar(labels, series)
+      names, values_list = normalize_radar_series(series)
+      @handle.radar(Array(labels).map(&:to_s), names, values_list)
+      self
+    end
+
     # Render and write the plot. Format is chosen by the file extension
     # (.png, .svg, .pdf); defaults to PNG.
     #
@@ -288,6 +313,32 @@ module Ruviz
 
     def numo_narray?(values)
       defined?(Numo::NArray) && values.is_a?(Numo::NArray)
+    end
+
+    # Normalize the many accepted `radar` series shapes into parallel arrays of
+    # names (String or nil) and float-value arrays. Radar data is per-axis and
+    # small, so converting Numo to a Ruby Array here is fine.
+    def normalize_radar_series(series)
+      case series
+      when Hash
+        [series.keys.map(&:to_s), series.values.map { |v| to_float_array(v) }]
+      when ::Array
+        if series.first.is_a?(Hash)
+          [series.map { |h| (h[:name] || h["name"])&.to_s },
+           series.map { |h| to_float_array(h[:values] || h["values"]) }]
+        elsif series.first.is_a?(::Array) || numo_narray?(series.first)
+          [::Array.new(series.length), series.map { |v| to_float_array(v) }]
+        else
+          [[nil], [to_float_array(series)]] # a single flat array of numbers
+        end
+      else
+        [[nil], [to_float_array(series)]] # e.g. a single 1-D Numo array
+      end
+    end
+
+    def to_float_array(values)
+      arr = numo_narray?(values) ? values.to_a : Array(values)
+      arr.map { |x| Float(x) }
     end
 
     def polars_series?(values)
