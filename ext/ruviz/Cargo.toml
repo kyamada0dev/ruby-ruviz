@@ -18,4 +18,7 @@ rb-sys = "0.9"
 # export and `parallel` speeds up rendering. Mirrors the Python binding's set
 # minus 3d (2D MVP). `default-features = false` keeps the desktop/interactive
 # features (and their system-lib deps) out of the build.
-ruviz = { path = "../../../ruviz", default-features = false, features = ["parallel", "pdf"] }
+#
+# Depend on the published crate (not a local path) so this gem is buildable when
+# bundled from git in another project.
+ruviz = { version = "0.11", default-features = false, features = ["parallel", "pdf"] }
