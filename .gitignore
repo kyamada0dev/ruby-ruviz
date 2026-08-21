@@ -1,0 +1,11 @@
+/target/
+/ext/ruviz/target/
+*.bundle
+*.so
+*.dll
+/lib/ruviz/ruviz.so
+/lib/ruviz/ruviz.bundle
+/tmp/
+/pkg/
+Gemfile.lock
+.envrc
