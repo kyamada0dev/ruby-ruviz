@@ -9,3 +9,6 @@
 /pkg/
 Gemfile.lock
 .envrc
+/examples/*.png
+/examples/*.svg
+/examples/*.pdf

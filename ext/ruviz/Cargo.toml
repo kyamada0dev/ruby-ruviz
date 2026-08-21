@@ -11,5 +11,8 @@ crate-type = ["cdylib"]
 
 [dependencies]
 magnus = { version = "0.8", features = ["rb-sys"] }
-# ruviz itself is added in Phase 2, once the Plot builder is wired up:
-#   ruviz = { path = "../../../ruviz", default-features = false, features = [...] }
+# PNG rendering and SVG export are always available in ruviz; `pdf` gates PDF
+# export and `parallel` speeds up rendering. Mirrors the Python binding's set
+# minus 3d (2D MVP). `default-features = false` keeps the desktop/interactive
+# features (and their system-lib deps) out of the build.
+ruviz = { path = "../../../ruviz", default-features = false, features = ["parallel", "pdf"] }

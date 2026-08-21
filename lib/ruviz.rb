@@ -16,3 +16,5 @@ end
 # performs all layout, scaling and rendering.
 module Ruviz
 end
+
+require_relative "ruviz/plot"

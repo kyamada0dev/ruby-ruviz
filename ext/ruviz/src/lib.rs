@@ -1,23 +1,270 @@
-// ruviz Ruby binding — native extension entry point.
+// ruviz Ruby binding — native extension.
 //
-// Phase 1: extension skeleton only. This wires up the `Ruviz` module and a
-// hello-world method so the whole Ruby<->Rust build/load pipeline can be
-// verified before the ruviz plot API is bound in Phase 2.
+// Design (mirrors the ruviz Python binding): ruviz's `Plot` setters are
+// *consuming* (`mut self -> Self`), which does not map onto a long-lived Ruby
+// object. So the native handle keeps a plain, mutable `PlotState` and *replays*
+// it onto a fresh `Plot::new()` at render time (snapshot-and-rebuild). The
+// fluent chaining and keyword handling live in the Ruby facade (lib/ruviz);
+// this layer stays thin: validate args, mutate state, build, render, map errors.
 
-use magnus::{function, prelude::*, Error, Ruby};
+use std::cell::RefCell;
 
-/// Version of this native binding (kept in sync with lib/ruviz/version.rb).
+use magnus::{function, method, prelude::*, Error, Ruby};
+
+use ruviz::core::PlottingError;
+use ruviz::prelude::{AxisScale, Color, IntoPlot, LegendPosition, Plot};
+
 const BINDING_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Smoke-test hook: proves the extension loaded and Rust code runs.
+// ---- error helpers ---------------------------------------------------------
+
+/// Validation / bad-argument failures -> ArgumentError.
+fn arg_err(msg: impl Into<String>) -> Error {
+    Error::new(magnus::exception::arg_error(), msg.into())
+}
+
+/// ruviz render / IO failures -> RuntimeError (Ruviz::Error at the Ruby layer).
+fn render_err(e: PlottingError) -> Error {
+    Error::new(magnus::exception::runtime_error(), format!("ruviz: {e}"))
+}
+
+// ---- name -> enum parsing (tables mirror ruviz Python native_handle.rs) -----
+
+fn parse_color(s: &str) -> Result<Color, Error> {
+    Color::named(s)
+        .or_else(|| Color::hex(s))
+        .ok_or_else(|| arg_err(format!("unknown color: {s:?} (try a name like \"blue\" or \"#2563eb\")")))
+}
+
+fn parse_scale(name: &str, linthresh: Option<f64>) -> Result<AxisScale, Error> {
+    match name.to_ascii_lowercase().as_str() {
+        "linear" => Ok(AxisScale::Linear),
+        "log" => Ok(AxisScale::Log),
+        "symlog" => Ok(AxisScale::SymLog {
+            linthresh: linthresh.unwrap_or(1.0),
+        }),
+        other => Err(arg_err(format!(
+            "unknown scale: {other:?} (expected :linear, :log or :symlog)"
+        ))),
+    }
+}
+
+fn parse_legend(name: &str) -> Result<LegendPosition, Error> {
+    // Accept both :upper_right and "upper-right".
+    let key = name.to_ascii_lowercase().replace('-', "_");
+    let pos = match key.as_str() {
+        "best" => LegendPosition::Best,
+        "upper_right" => LegendPosition::UpperRight,
+        "upper_left" => LegendPosition::UpperLeft,
+        "lower_left" => LegendPosition::LowerLeft,
+        "lower_right" => LegendPosition::LowerRight,
+        "right" => LegendPosition::Right,
+        "center_left" => LegendPosition::CenterLeft,
+        "center_right" => LegendPosition::CenterRight,
+        "lower_center" => LegendPosition::LowerCenter,
+        "upper_center" => LegendPosition::UpperCenter,
+        "center" => LegendPosition::Center,
+        "outside_right" => LegendPosition::OutsideRight,
+        "outside_left" => LegendPosition::OutsideLeft,
+        "outside_upper" => LegendPosition::OutsideUpper,
+        "outside_lower" => LegendPosition::OutsideLower,
+        other => {
+            return Err(arg_err(format!(
+                "unknown legend position: {other:?} (e.g. :best, :upper_right, :outside_right)"
+            )))
+        }
+    };
+    Ok(pos)
+}
+
+// ---- captured state --------------------------------------------------------
+
+struct SeriesState {
+    x: Vec<f64>,
+    y: Vec<f64>,
+    label: Option<String>,
+    color: Option<Color>,
+    width: Option<f32>,
+}
+
+#[derive(Default)]
+struct PlotState {
+    width_px: Option<u32>,
+    height_px: Option<u32>,
+    title: Option<String>,
+    xlabel: Option<String>,
+    ylabel: Option<String>,
+    xscale: Option<AxisScale>,
+    yscale: Option<AxisScale>,
+    grid: Option<bool>,
+    legend: Option<LegendPosition>,
+    series: Vec<SeriesState>,
+}
+
+#[magnus::wrap(class = "Ruviz::PlotHandle", free_immediately, size)]
+struct PlotHandle(RefCell<PlotState>);
+
+impl PlotHandle {
+    fn new() -> Self {
+        PlotHandle(RefCell::new(PlotState::default()))
+    }
+
+    fn size_px(&self, width: u32, height: u32) -> Result<(), Error> {
+        if width == 0 || height == 0 {
+            return Err(arg_err("size_px: width and height must be positive"));
+        }
+        let mut st = self.0.borrow_mut();
+        st.width_px = Some(width);
+        st.height_px = Some(height);
+        Ok(())
+    }
+
+    fn title(&self, s: String) {
+        self.0.borrow_mut().title = Some(s);
+    }
+
+    fn xlabel(&self, s: String) {
+        self.0.borrow_mut().xlabel = Some(s);
+    }
+
+    fn ylabel(&self, s: String) {
+        self.0.borrow_mut().ylabel = Some(s);
+    }
+
+    fn xscale(&self, name: String, linthresh: Option<f64>) -> Result<(), Error> {
+        let scale = parse_scale(&name, linthresh)?;
+        self.0.borrow_mut().xscale = Some(scale);
+        Ok(())
+    }
+
+    fn yscale(&self, name: String, linthresh: Option<f64>) -> Result<(), Error> {
+        let scale = parse_scale(&name, linthresh)?;
+        self.0.borrow_mut().yscale = Some(scale);
+        Ok(())
+    }
+
+    fn grid(&self, enabled: bool) {
+        self.0.borrow_mut().grid = Some(enabled);
+    }
+
+    fn legend(&self, position: String) -> Result<(), Error> {
+        let pos = parse_legend(&position)?;
+        self.0.borrow_mut().legend = Some(pos);
+        Ok(())
+    }
+
+    fn line(
+        &self,
+        x: Vec<f64>,
+        y: Vec<f64>,
+        label: Option<String>,
+        color: Option<String>,
+        width: Option<f64>,
+    ) -> Result<(), Error> {
+        if x.len() != y.len() {
+            return Err(arg_err(format!(
+                "line: x and y must have the same length (got {} and {})",
+                x.len(),
+                y.len()
+            )));
+        }
+        if x.is_empty() {
+            return Err(arg_err("line: data is empty"));
+        }
+        let color = color.as_deref().map(parse_color).transpose()?;
+        self.0.borrow_mut().series.push(SeriesState {
+            x,
+            y,
+            label,
+            color,
+            width: width.map(|w| w as f32),
+        });
+        Ok(())
+    }
+
+    /// Replay the captured state onto a fresh ruviz `Plot`.
+    fn build_plot(&self) -> Plot {
+        let st = self.0.borrow();
+        let mut plot = Plot::new();
+        if let (Some(w), Some(h)) = (st.width_px, st.height_px) {
+            plot = plot.size_px(w, h);
+        }
+        if let Some(t) = &st.title {
+            plot = plot.title(t.as_str());
+        }
+        if let Some(s) = &st.xlabel {
+            plot = plot.xlabel(s.as_str());
+        }
+        if let Some(s) = &st.ylabel {
+            plot = plot.ylabel(s.as_str());
+        }
+        if let Some(scale) = st.xscale {
+            plot = plot.xscale(scale);
+        }
+        if let Some(scale) = st.yscale {
+            plot = plot.yscale(scale);
+        }
+        if let Some(g) = st.grid {
+            plot = plot.grid(g);
+        }
+        if let Some(pos) = st.legend {
+            plot = plot.legend(pos);
+        }
+        for s in &st.series {
+            let mut pb = plot.line_source(s.x.clone(), s.y.clone());
+            if let Some(l) = &s.label {
+                pb = pb.label(l.clone());
+            }
+            if let Some(c) = s.color {
+                pb = pb.color(c);
+            }
+            if let Some(w) = s.width {
+                pb = pb.line_width(w);
+            }
+            plot = pb.into_plot();
+        }
+        plot
+    }
+
+    /// Render and write to `path`, dispatching by extension (png/svg/pdf).
+    fn save(&self, path: String) -> Result<(), Error> {
+        if self.0.borrow().series.is_empty() {
+            return Err(arg_err("save: nothing to plot (add a series, e.g. #line)"));
+        }
+        let plot = self.build_plot();
+        let lower = path.to_ascii_lowercase();
+        let result = if lower.ends_with(".svg") {
+            plot.export_svg(&path)
+        } else if lower.ends_with(".pdf") {
+            plot.save_pdf(&path)
+        } else {
+            plot.save(&path) // PNG (default)
+        };
+        result.map_err(render_err)
+    }
+}
+
 fn hello() -> String {
     format!("ruviz-ruby native extension loaded (v{BINDING_VERSION})")
 }
 
-// `name` must match the loaded library basename so Ruby finds `Init_ruviz`.
 #[magnus::init(name = "ruviz")]
 fn init(ruby: &Ruby) -> Result<(), Error> {
     let module = ruby.define_module("Ruviz")?;
     module.define_singleton_method("_hello", function!(hello, 0))?;
+
+    let handle = module.define_class("PlotHandle", ruby.class_object())?;
+    handle.define_singleton_method("new", function!(PlotHandle::new, 0))?;
+    handle.define_method("size_px", method!(PlotHandle::size_px, 2))?;
+    handle.define_method("title", method!(PlotHandle::title, 1))?;
+    handle.define_method("xlabel", method!(PlotHandle::xlabel, 1))?;
+    handle.define_method("ylabel", method!(PlotHandle::ylabel, 1))?;
+    handle.define_method("xscale", method!(PlotHandle::xscale, 2))?;
+    handle.define_method("yscale", method!(PlotHandle::yscale, 2))?;
+    handle.define_method("grid", method!(PlotHandle::grid, 1))?;
+    handle.define_method("legend", method!(PlotHandle::legend, 1))?;
+    handle.define_method("line", method!(PlotHandle::line, 5))?;
+    handle.define_method("save", method!(PlotHandle::save, 1))?;
+
     Ok(())
 }
