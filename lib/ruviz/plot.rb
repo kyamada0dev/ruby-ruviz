@@ -27,6 +27,14 @@ module Ruviz
       self
     end
 
+    # Output resolution in DPI. Layout proportions are unchanged (matplotlib
+    # semantics); higher DPI renders more pixels, so text and lines look
+    # crisper. e.g. size_px(760, 440).dpi(200) -> a 1520x880 crisp PNG.
+    def dpi(value)
+      @handle.dpi(Integer(value))
+      self
+    end
+
     def title(text)
       @handle.title(text.to_s)
       self

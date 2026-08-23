@@ -15,6 +15,7 @@ class PlotTest < Minitest::Test
   def test_builder_methods_chain
     plot = Ruviz.plot
     assert_same plot, plot.size_px(400, 300)
+    assert_same plot, plot.dpi(200)
     assert_same plot, plot.title("t")
     assert_same plot, plot.xlabel("x").ylabel("y")
     assert_same plot, plot.line(@x, @y)
@@ -29,6 +30,21 @@ class PlotTest < Minitest::Test
       # PNG magic number
       assert_equal "\x89PNG".b, File.binread(path, 4)
     end
+  end
+
+  # dpi keeps layout but renders more pixels -> larger file at higher DPI.
+  def test_dpi_increases_resolution
+    Dir.mktmpdir do |dir|
+      lo = File.join(dir, "lo.png")
+      hi = File.join(dir, "hi.png")
+      Ruviz.plot.size_px(320, 240).line(@x, @y, color: "blue").save(lo)
+      Ruviz.plot.size_px(320, 240).dpi(200).line(@x, @y, color: "blue").save(hi)
+      assert File.size(hi) > File.size(lo)
+    end
+  end
+
+  def test_dpi_rejects_zero
+    assert_raises(ArgumentError) { Ruviz.plot.dpi(0) }
   end
 
   def test_save_svg

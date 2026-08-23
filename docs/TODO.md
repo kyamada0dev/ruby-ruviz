@@ -54,7 +54,8 @@ Priority reflects usefulness for everyday data-viz (pandas-style workflows).
 
 ## D. Output options
 
-- [ ] DPI control: `dpi`, `save_with_dpi`, `save_with_size`
+- [x] DPI control: `dpi` (crisper text/lines; layout unchanged). `save_with_dpi`
+      / `save_with_size` still unbound.
 - [ ] in-memory bytes: `render_png_bytes`, `render_to_svg` (embed without a file)
 - [ ] SVG/PDF for `subplots` (currently the crate renders subplot figures as
       raster only — upstream limitation)

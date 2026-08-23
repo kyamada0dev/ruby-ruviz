@@ -87,7 +87,8 @@ objects for large datasets):
 
 ### Figure / axes
 
-`size_px(w, h)` · `title(s)` · `xlabel(s)` · `ylabel(s)` ·
+`size_px(w, h)` · `dpi(n)` (crisper text/lines; layout unchanged) ·
+`title(s)` · `xlabel(s)` · `ylabel(s)` ·
 `xscale(:linear \| :log \| :symlog)` · `yscale(...)` · `xlim(min, max)` ·
 `ylim(min, max)` · `grid(bool)` · `legend(:best \| :upper_right \| …)` ·
 `theme(:light \| :dark \| :publication \| :minimal \| :seaborn \| :presentation)`

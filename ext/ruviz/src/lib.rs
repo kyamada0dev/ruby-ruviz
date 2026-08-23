@@ -308,6 +308,7 @@ enum Annotation {
 struct PlotState {
     width_px: Option<u32>,
     height_px: Option<u32>,
+    dpi: Option<u32>,
     title: Option<String>,
     xlabel: Option<String>,
     ylabel: Option<String>,
@@ -342,6 +343,16 @@ impl PlotHandle {
         let mut st = self.0.borrow_mut();
         st.width_px = Some(width);
         st.height_px = Some(height);
+        Ok(())
+    }
+
+    // Output resolution. Keeps layout proportions (matplotlib semantics) and
+    // scales the rendered pixels, so higher DPI yields crisper text/lines.
+    fn dpi(&self, dpi: u32) -> Result<(), Error> {
+        if dpi == 0 {
+            return Err(arg_err("dpi: must be positive"));
+        }
+        self.0.borrow_mut().dpi = Some(dpi);
         Ok(())
     }
 
@@ -855,6 +866,9 @@ impl PlotHandle {
         if let (Some(w), Some(h)) = (st.width_px, st.height_px) {
             plot = plot.size_px(w, h);
         }
+        if let Some(d) = st.dpi {
+            plot = plot.dpi(d);
+        }
         if let Some(theme) = &st.theme {
             plot = plot.theme(theme.clone());
         }
@@ -1281,6 +1295,7 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     let handle = module.define_class("PlotHandle", ruby.class_object())?;
     handle.define_singleton_method("new", function!(PlotHandle::new, 0))?;
     handle.define_method("size_px", method!(PlotHandle::size_px, 2))?;
+    handle.define_method("dpi", method!(PlotHandle::dpi, 1))?;
     handle.define_method("title", method!(PlotHandle::title, 1))?;
     handle.define_method("xlabel", method!(PlotHandle::xlabel, 1))?;
     handle.define_method("ylabel", method!(PlotHandle::ylabel, 1))?;
