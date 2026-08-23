@@ -308,6 +308,12 @@ module Ruviz
       self
     end
 
+    # @api private
+    # The native +Ruviz::PlotHandle+, so a +Subplots+ figure can embed this plot.
+    def __handle
+      @handle
+    end
+
     private
 
     # Normalize a data argument into something the native `line` accepts.
@@ -386,10 +392,68 @@ module Ruviz
     end
   end
 
+  # Fluent facade over the native +Ruviz::SubplotHandle+: a grid of plots
+  # rendered into one figure (like matplotlib's +subplots+ / pandas facets).
+  #
+  #   Ruviz.subplots(1, 2, 960, 440)
+  #     .suptitle("by time")
+  #     .subplot(0, 0, dinner_plot)
+  #     .subplot(0, 1, lunch_plot)
+  #     .save("facet.png")   # subplots render raster (PNG) output
+  class Subplots
+    def initialize(rows, cols, width, height)
+      @handle = Ruviz._subplots(Integer(rows), Integer(cols), Integer(width), Integer(height))
+    end
+
+    # Figure-level title above all panels.
+    def suptitle(text)
+      @handle.suptitle(text.to_s)
+      self
+    end
+
+    def suptitle_font_size(size)
+      @handle.suptitle_font_size(Float(size))
+      self
+    end
+
+    # Place a plot at grid cell (row, col), both zero-based.
+    def subplot(row, col, plot)
+      @handle.subplot(Integer(row), Integer(col), unwrap(plot))
+      self
+    end
+
+    # Place a plot at flat index (row-major), zero-based.
+    def subplot_at(index, plot)
+      @handle.subplot_at(Integer(index), unwrap(plot))
+      self
+    end
+
+    # Render every panel and write the figure (PNG).
+    def save(path)
+      @handle.save(path.to_s)
+      self
+    end
+
+    private
+
+    def unwrap(plot)
+      raise ArgumentError, "expected a Ruviz::Plot (got #{plot.class})" unless plot.is_a?(Plot)
+
+      plot.__handle
+    end
+  end
+
   # Start a new plot.
   #
   # @return [Ruviz::Plot]
   def self.plot
     Plot.new
+  end
+
+  # Start a grid figure of +rows+ x +cols+ subplots.
+  #
+  # @return [Ruviz::Subplots]
+  def self.subplots(rows, cols, width = 800, height = 600)
+    Subplots.new(rows, cols, width, height)
   end
 end

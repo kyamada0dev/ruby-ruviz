@@ -12,11 +12,13 @@ mod numo;
 use std::cell::RefCell;
 
 use magnus::{function, method, prelude::*, Error, Ruby, TryConvert, Value};
+use magnus::typed_data::Obj;
 
 use ruviz::core::annotation::{ShapeStyle, TextStyle};
 use ruviz::core::PlottingError;
 use ruviz::prelude::{
-    AxisScale, Color, HistogramConfig, IntoPlot, LegendPosition, LineStyle, MarkerStyle, Plot,
+    subplots, AxisScale, Color, HistogramConfig, IntoPlot, LegendPosition, LineStyle, MarkerStyle,
+    Plot, SubplotFigure,
 };
 use ruviz::render::Theme;
 
@@ -1182,6 +1184,91 @@ impl PlotHandle {
     }
 }
 
+// ---- Subplots (grid of plots in one figure) -------------------------------
+
+#[derive(Default)]
+struct SubplotState {
+    rows: usize,
+    cols: usize,
+    width: u32,
+    height: u32,
+    suptitle: Option<String>,
+    suptitle_size: Option<f32>,
+    // (grid index, already-built plot). Plots are built eagerly when added so
+    // the Ruby-side Plot object stays usable afterwards.
+    plots: Vec<(usize, Plot)>,
+}
+
+#[magnus::wrap(class = "Ruviz::SubplotHandle", free_immediately, size)]
+struct SubplotHandle(RefCell<SubplotState>);
+
+impl SubplotHandle {
+    fn new(rows: usize, cols: usize, width: u32, height: u32) -> Result<Self, Error> {
+        if rows == 0 || cols == 0 {
+            return Err(arg_err("subplots: rows and cols must be positive"));
+        }
+        if width == 0 || height == 0 {
+            return Err(arg_err("subplots: width and height must be positive"));
+        }
+        Ok(SubplotHandle(RefCell::new(SubplotState {
+            rows,
+            cols,
+            width,
+            height,
+            ..Default::default()
+        })))
+    }
+
+    fn suptitle(&self, text: String) -> Result<(), Error> {
+        self.0.borrow_mut().suptitle = Some(text);
+        Ok(())
+    }
+
+    fn suptitle_font_size(&self, size: f64) -> Result<(), Error> {
+        self.0.borrow_mut().suptitle_size = Some(size as f32);
+        Ok(())
+    }
+
+    fn subplot_at(&self, index: usize, plot: Obj<PlotHandle>) -> Result<(), Error> {
+        let built = plot.build_plot();
+        self.0.borrow_mut().plots.push((index, built));
+        Ok(())
+    }
+
+    fn subplot(&self, row: usize, col: usize, plot: Obj<PlotHandle>) -> Result<(), Error> {
+        let index = {
+            let st = self.0.borrow();
+            if row >= st.rows || col >= st.cols {
+                return Err(arg_err("subplot: (row, col) out of grid range"));
+            }
+            row * st.cols + col
+        };
+        let built = plot.build_plot();
+        self.0.borrow_mut().plots.push((index, built));
+        Ok(())
+    }
+
+    fn save(&self, path: String) -> Result<(), Error> {
+        let mut st = self.0.borrow_mut();
+        if st.plots.is_empty() {
+            return Err(arg_err("save: no subplots added (use #subplot or #subplot_at)"));
+        }
+        let mut fig: SubplotFigure =
+            subplots(st.rows, st.cols, st.width, st.height).map_err(render_err)?;
+        if let Some(t) = st.suptitle.take() {
+            fig = fig.suptitle(t);
+        }
+        if let Some(s) = st.suptitle_size {
+            fig = fig.suptitle_font_size(s);
+        }
+        for (index, plot) in std::mem::take(&mut st.plots) {
+            fig = fig.subplot_at(index, plot).map_err(render_err)?;
+        }
+        // SubplotFigure only renders raster output (PNG).
+        fig.save(&path).map_err(render_err)
+    }
+}
+
 fn hello() -> String {
     format!("ruviz-ruby native extension loaded (v{BINDING_VERSION})")
 }
@@ -1227,6 +1314,14 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     handle.define_method("pie", method!(PlotHandle::pie, 3))?;
     handle.define_method("radar", method!(PlotHandle::radar, 3))?;
     handle.define_method("save", method!(PlotHandle::save, 1))?;
+
+    let sub = module.define_class("SubplotHandle", ruby.class_object())?;
+    module.define_singleton_method("_subplots", function!(SubplotHandle::new, 4))?;
+    sub.define_method("suptitle", method!(SubplotHandle::suptitle, 1))?;
+    sub.define_method("suptitle_font_size", method!(SubplotHandle::suptitle_font_size, 1))?;
+    sub.define_method("subplot", method!(SubplotHandle::subplot, 3))?;
+    sub.define_method("subplot_at", method!(SubplotHandle::subplot_at, 2))?;
+    sub.define_method("save", method!(SubplotHandle::save, 1))?;
 
     Ok(())
 }

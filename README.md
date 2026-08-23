@@ -106,6 +106,25 @@ and their `_open` variants. Colors accept CSS names and `#rrggbb` hex.
 
 `save(path)` chooses PNG / SVG / PDF by file extension.
 
+### Subplots
+
+Arrange several plots in one figure (like matplotlib's `subplots` or a pandas
+facet). Build each panel with `Ruviz.plot`, then place them by grid cell or flat
+index:
+
+```ruby
+Ruviz.subplots(1, 2, 960, 440)        # rows, cols, width_px, height_px
+  .suptitle("total_bill by time")
+  .subplot(0, 0, dinner_plot)         # (row, col, plot) — zero-based
+  .subplot(0, 1, lunch_plot)
+  .save("facet.png")                  # subplots render raster (PNG)
+```
+
+`Ruviz.subplots(rows, cols, width = 800, height = 600)` · `suptitle(s)` ·
+`suptitle_font_size(n)` · `subplot(row, col, plot)` ·
+`subplot_at(index, plot)` (row-major flat index) · `save(path)`.
+See `examples/subplots.rb`.
+
 ## Errors
 
 Invalid arguments raise `ArgumentError`; ruviz render/IO failures raise
