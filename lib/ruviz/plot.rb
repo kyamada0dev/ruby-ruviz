@@ -158,14 +158,47 @@ module Ruviz
     #
     # @param x [Array<Numeric>, Numo::NArray, Polars::Series] x values
     # @param y [Array<Numeric>, Numo::NArray, Polars::Series] y values
-    def line(x, y, label: nil, color: nil, width: nil)
+    # @param style [Symbol, String] :solid, :dashed, :dotted, :dash_dot, :dash_dot_dot
+    def line(x, y, label: nil, color: nil, width: nil, style: nil)
       @handle.line(
         coerce_data(x),
         coerce_data(y),
         label&.to_s,
         color&.to_s,
+        width && Float(width),
+        style&.to_s
+      )
+      self
+    end
+
+    # Error bars. +y_err+ is required; +x_err+ optional (both symmetric).
+    def error_bars(x, y, y_err:, x_err: nil, label: nil, color: nil)
+      @handle.error_bars(
+        coerce_data(x),
+        coerce_data(y),
+        coerce_data(y_err),
+        x_err && coerce_data(x_err),
+        label&.to_s,
+        color&.to_s
+      )
+      self
+    end
+
+    # Polar line. +theta+ in radians, +r+ the radius at each angle.
+    def polar_line(theta, r, label: nil, color: nil, width: nil)
+      @handle.polar_line(
+        coerce_data(theta),
+        coerce_data(r),
+        label&.to_s,
+        color&.to_s,
         width && Float(width)
       )
+      self
+    end
+
+    # Fast mode: trade some visual quality for speed on large datasets.
+    def fast(enabled = true)
+      @handle.fast(enabled ? true : false)
       self
     end
 
@@ -260,8 +293,16 @@ module Ruviz
     # Heatmap of a 2-D matrix.
     #
     # @param data [Array<Array<Numeric>>, Numo::NArray, Polars::DataFrame]
-    def heatmap(data)
-      @handle.heatmap(coerce_matrix(data))
+    # @param colormap [String, nil] e.g. "viridis", "plasma", "magma", "coolwarm"
+    # @param colorbar [Boolean] draw a colorbar legend
+    # @param colorbar_label [String, nil] label beside the colorbar
+    def heatmap(data, colormap: nil, colorbar: false, colorbar_label: nil)
+      @handle.heatmap(
+        coerce_matrix(data),
+        colormap&.to_s,
+        colorbar ? true : false,
+        colorbar_label&.to_s
+      )
       self
     end
 

@@ -71,19 +71,23 @@ objects for large datasets):
 
 | method | data |
 |---|---|
-| `line(x, y, label:, color:, width:)` | two 1-D vectors |
+| `line(x, y, label:, color:, width:, style:)` | two 1-D vectors (`style:` :solid/:dashed/:dotted/:dash_dot/:dash_dot_dot) |
 | `scatter(x, y, label:, color:, marker:, marker_size:, alpha:)` | two 1-D vectors |
 | `bar(categories, values, label:, color:, alpha:)` | labels + 1-D values |
 | `histogram(data, bins:, label:, color:, alpha:)` | 1-D sample |
 | `area(x, y, baseline:, label:, color:, width:, alpha:)` | two 1-D vectors |
+| `error_bars(x, y, y_err:, x_err:, label:, color:)` | x/y + symmetric errors |
 | `boxplot(data, label:, color:, alpha:)` | 1-D sample |
 | `kde(data, label:, color:, alpha:)` | 1-D sample |
 | `ecdf(data, label:, color:, alpha:)` | 1-D sample |
 | `violin(data, label:, color:, alpha:)` | 1-D sample |
-| `heatmap(data)` | 2-D matrix |
+| `heatmap(data, colormap:, colorbar:, colorbar_label:)` | 2-D matrix (colormap e.g. "viridis") |
 | `contour(x, y, z, levels:, filled:)` | 1-D x/y + flat row-major z (nx*ny) |
+| `polar_line(theta, r, label:, color:, width:)` | angle (rad) + radius |
 | `pie(values, labels:, donut:)` | 1-D slice values |
 | `radar(labels, series)` | axis labels + one or more series |
+
+`fast(true)` trades some quality for speed on large datasets.
 
 ### Figure / axes
 

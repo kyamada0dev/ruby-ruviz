@@ -203,6 +203,22 @@ enum Series {
         label: Option<String>,
         color: Option<Color>,
         width: Option<f32>,
+        style: Option<LineStyle>,
+    },
+    ErrorBars {
+        x: Vec<f64>,
+        y: Vec<f64>,
+        x_err: Option<Vec<f64>>,
+        y_err: Option<Vec<f64>>,
+        label: Option<String>,
+        color: Option<Color>,
+    },
+    PolarLine {
+        r: Vec<f64>,
+        theta: Vec<f64>,
+        label: Option<String>,
+        color: Option<Color>,
+        width: Option<f32>,
     },
     Scatter {
         x: Vec<f64>,
@@ -252,6 +268,9 @@ enum Series {
     },
     Heatmap {
         matrix: Vec<Vec<f64>>,
+        colormap: Option<String>,
+        colorbar: bool,
+        colorbar_label: Option<String>,
     },
     Contour {
         x: Vec<f64>,
@@ -324,6 +343,7 @@ struct PlotState {
     title_size: Option<f32>,
     legend_font_size: Option<f32>,
     scale_typography: Option<f32>,
+    fast: Option<bool>,
     series: Vec<Series>,
     annotations: Vec<Annotation>,
 }
@@ -513,6 +533,7 @@ impl PlotHandle {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn line(
         &self,
         x: Value,
@@ -520,6 +541,7 @@ impl PlotHandle {
         label: Option<String>,
         color: Option<String>,
         width: Option<f64>,
+        style: Option<String>,
     ) -> Result<(), Error> {
         let x = extract_f64_vec(x)?;
         let y = extract_f64_vec(y)?;
@@ -534,13 +556,78 @@ impl PlotHandle {
             return Err(arg_err("line: data is empty"));
         }
         let color = opt_color(color)?;
+        let style = style.map(|s| parse_linestyle(&s)).transpose()?;
         self.0.borrow_mut().series.push(Series::Line {
             x,
             y,
             label,
             color,
             width: width.map(|w| w as f32),
+            style,
         });
+        Ok(())
+    }
+
+    fn error_bars(
+        &self,
+        x: Value,
+        y: Value,
+        y_err: Value,
+        x_err: Option<Value>,
+        label: Option<String>,
+        color: Option<String>,
+    ) -> Result<(), Error> {
+        let x = extract_f64_vec(x)?;
+        let y = extract_f64_vec(y)?;
+        let y_err = extract_f64_vec(y_err)?;
+        let x_err = x_err.map(extract_f64_vec).transpose()?;
+        if x.len() != y.len() || x.len() != y_err.len() {
+            return Err(arg_err("error_bars: x, y, y_err must have the same length"));
+        }
+        if let Some(xe) = &x_err {
+            if xe.len() != x.len() {
+                return Err(arg_err("error_bars: x_err must match x length"));
+            }
+        }
+        self.0.borrow_mut().series.push(Series::ErrorBars {
+            x,
+            y,
+            x_err,
+            y_err: Some(y_err),
+            label,
+            color: opt_color(color)?,
+        });
+        Ok(())
+    }
+
+    fn polar_line(
+        &self,
+        theta: Value,
+        r: Value,
+        label: Option<String>,
+        color: Option<String>,
+        width: Option<f64>,
+    ) -> Result<(), Error> {
+        let theta = extract_f64_vec(theta)?;
+        let r = extract_f64_vec(r)?;
+        if theta.len() != r.len() {
+            return Err(arg_err("polar_line: theta and r must have the same length"));
+        }
+        if theta.is_empty() {
+            return Err(arg_err("polar_line: data is empty"));
+        }
+        self.0.borrow_mut().series.push(Series::PolarLine {
+            r,
+            theta,
+            label,
+            color: opt_color(color)?,
+            width: width.map(|w| w as f32),
+        });
+        Ok(())
+    }
+
+    fn fast(&self, enabled: bool) -> Result<(), Error> {
+        self.0.borrow_mut().fast = Some(enabled);
         Ok(())
     }
 
@@ -748,7 +835,13 @@ impl PlotHandle {
         self.push_dist(DistKind::Violin, "violin", data, label, color, alpha)
     }
 
-    fn heatmap(&self, data: Value) -> Result<(), Error> {
+    fn heatmap(
+        &self,
+        data: Value,
+        colormap: Option<String>,
+        colorbar: bool,
+        colorbar_label: Option<String>,
+    ) -> Result<(), Error> {
         let matrix = extract_f64_matrix(data)?;
         if matrix.is_empty() || matrix[0].is_empty() {
             return Err(arg_err("heatmap: data is empty"));
@@ -757,7 +850,12 @@ impl PlotHandle {
         if matrix.iter().any(|r| r.len() != cols) {
             return Err(arg_err("heatmap: all rows must have the same length"));
         }
-        self.0.borrow_mut().series.push(Series::Heatmap { matrix });
+        self.0.borrow_mut().series.push(Series::Heatmap {
+            matrix,
+            colormap,
+            colorbar,
+            colorbar_label,
+        });
         Ok(())
     }
 
@@ -869,6 +967,9 @@ impl PlotHandle {
         if let Some(d) = st.dpi {
             plot = plot.dpi(d);
         }
+        if let Some(f) = st.fast {
+            plot = plot.fast(f);
+        }
         if let Some(theme) = &st.theme {
             plot = plot.theme(theme.clone());
         }
@@ -922,8 +1023,52 @@ impl PlotHandle {
                     label,
                     color,
                     width,
+                    style,
                 } => {
                     let mut pb = plot.line_source(x.clone(), y.clone());
+                    if let Some(l) = label {
+                        pb = pb.label(l.clone());
+                    }
+                    if let Some(c) = color {
+                        pb = pb.color(*c);
+                    }
+                    if let Some(w) = width {
+                        pb = pb.line_width(*w);
+                    }
+                    if let Some(s) = style {
+                        pb = pb.line_style(s.clone());
+                    }
+                    pb.into_plot()
+                }
+                Series::ErrorBars {
+                    x,
+                    y,
+                    x_err,
+                    y_err,
+                    label,
+                    color,
+                } => {
+                    let yerr = y_err.clone().unwrap_or_else(|| vec![0.0; x.len()]);
+                    let mut pb = match x_err {
+                        Some(xe) => plot.error_bars_xy(x, y, xe, &yerr),
+                        None => plot.error_bars(x, y, &yerr),
+                    };
+                    if let Some(l) = label {
+                        pb = pb.label(l.clone());
+                    }
+                    if let Some(c) = color {
+                        pb = pb.color(*c);
+                    }
+                    pb.into_plot()
+                }
+                Series::PolarLine {
+                    r,
+                    theta,
+                    label,
+                    color,
+                    width,
+                } => {
+                    let mut pb = plot.polar_line(r, theta);
                     if let Some(l) = label {
                         pb = pb.label(l.clone());
                     }
@@ -1081,7 +1226,25 @@ impl PlotHandle {
                         DistKind::Violin => styled!(plot.violin(data)),
                     }
                 }
-                Series::Heatmap { matrix } => plot.heatmap(matrix).into_plot(),
+                Series::Heatmap {
+                    matrix,
+                    colormap,
+                    colorbar,
+                    colorbar_label,
+                } => {
+                    let mut cfg = ruviz::plots::heatmap::HeatmapConfig::new();
+                    if let Some(name) = colormap {
+                        cfg = cfg.cmap(name.clone());
+                    }
+                    let mut pb = plot.heatmap_with(matrix, cfg);
+                    if *colorbar {
+                        pb = pb.colorbar(true);
+                    }
+                    if let Some(lbl) = colorbar_label {
+                        pb = pb.colorbar_label(lbl.clone());
+                    }
+                    pb.into_plot()
+                }
                 Series::Contour {
                     x,
                     y,
@@ -1315,7 +1478,10 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     handle.define_method("vline", method!(PlotHandle::vline, 4))?;
     handle.define_method("annotate_text", method!(PlotHandle::annotate_text, 5))?;
     handle.define_method("rect", method!(PlotHandle::rect, 6))?;
-    handle.define_method("line", method!(PlotHandle::line, 5))?;
+    handle.define_method("line", method!(PlotHandle::line, 6))?;
+    handle.define_method("error_bars", method!(PlotHandle::error_bars, 6))?;
+    handle.define_method("polar_line", method!(PlotHandle::polar_line, 5))?;
+    handle.define_method("fast", method!(PlotHandle::fast, 1))?;
     handle.define_method("scatter", method!(PlotHandle::scatter, 7))?;
     handle.define_method("bar", method!(PlotHandle::bar, 5))?;
     handle.define_method("histogram", method!(PlotHandle::histogram, 5))?;
@@ -1324,7 +1490,7 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     handle.define_method("kde", method!(PlotHandle::kde, 4))?;
     handle.define_method("ecdf", method!(PlotHandle::ecdf, 4))?;
     handle.define_method("violin", method!(PlotHandle::violin, 4))?;
-    handle.define_method("heatmap", method!(PlotHandle::heatmap, 1))?;
+    handle.define_method("heatmap", method!(PlotHandle::heatmap, 4))?;
     handle.define_method("contour", method!(PlotHandle::contour, 5))?;
     handle.define_method("pie", method!(PlotHandle::pie, 3))?;
     handle.define_method("radar", method!(PlotHandle::radar, 3))?;

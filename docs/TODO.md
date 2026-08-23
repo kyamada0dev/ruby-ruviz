@@ -21,14 +21,14 @@ Priority reflects usefulness for everyday data-viz (pandas-style workflows).
 - [ ] `grouped_bar` — grouped bars (only plain `bar` today)
 - [ ] `stacked_bar` — stacked bars
 - [ ] `stacked_area` — stacked area
-- [ ] `error_bars` / `error_bars_xy` — error bars (x/y, symmetric/asymmetric)
+- [x] `error_bars` / `error_bars_xy` — error bars (symmetric x/y)
 - [ ] `strip` — strip plot (categorical scatter)
 - [ ] `swarm` — swarm / beeswarm plot
 - [ ] `boxen` — letter-value (boxen) plot
 - [ ] `hexbin` — hexbin density
 - [ ] `rug` — rug marks
 - [ ] `quiver` — vector field
-- [ ] `polar_line` — polar plot
+- [x] `polar_line` — polar plot
 - [ ] `dendrogram` — hierarchical clustering
 
 ## B. Composite figures (figure-level, like `subplots`)
@@ -40,9 +40,8 @@ Priority reflects usefulness for everyday data-viz (pandas-style workflows).
 
 ## C. Styling / configuration gaps (high value)
 
-- [ ] colormap (`cmap` / `colormap_name`) **+ `colorbar` / `colorbar_label`** —
-      `heatmap` is bound but cannot pick a colormap or show a colorbar; also
-      enables value-colored `scatter`
+- [x] heatmap colormap + colorbar: `heatmap(colormap:, colorbar:, colorbar_label:)`.
+      Value-colored `scatter` (per-point cmap) still unbound.
 - [ ] per-point mapping: `color_source`, `marker_size_source` (bubble / colored
       scatter)
 - [ ] `fill_between` / `fill_between_styled`, `axhspan` / `axvspan` (shaded bands)
