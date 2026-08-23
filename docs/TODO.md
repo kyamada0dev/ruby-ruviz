@@ -61,8 +61,9 @@ Priority reflects usefulness for everyday data-viz (pandas-style workflows).
 
 ## E. Advanced (larger scope / needs a decision)
 
-- [ ] 3D: `surface`, `wireframe`, `scatter3d`, ... — requires enabling the
-      crate's `3d` Cargo feature (currently `["parallel", "pdf"]`) then binding
+- [x] 3D: `scatter3d`, `line3d`, `surface`, `wireframe` — the crate's `3d` Cargo
+      feature is enabled and these standalone builders are bound. Camera/elev/azim
+      control and 3D animation still unbound.
 - [ ] interactive sessions (`InteractivePlotSession`)
 - [ ] animation (`recorder` / `figure_size`)
 - [ ] reactive signals, GPU backend selection

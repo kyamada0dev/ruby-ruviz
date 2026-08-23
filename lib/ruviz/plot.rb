@@ -492,6 +492,81 @@ module Ruviz
     end
   end
 
+  # Fluent facade over a native 3D plot builder (scatter3d / line3d / surface /
+  # wireframe). Built by Ruviz.scatter3d etc.; renders raster (PNG).
+  #
+  #   Ruviz.surface(x, y, z_grid).title("f(x,y)").zlabel("z").save("s.png")
+  class Plot3D
+    def initialize(handle)
+      @handle = handle
+    end
+
+    %i[title xlabel ylabel zlabel].each do |m|
+      define_method(m) do |text|
+        @handle.public_send(m, text.to_s)
+        self
+      end
+    end
+
+    def color(value)
+      @handle.color(value.to_s)
+      self
+    end
+
+    def marker(value)
+      @handle.marker(value.to_s)
+      self
+    end
+
+    def marker_size(value)
+      @handle.marker_size(Float(value))
+      self
+    end
+
+    def line_width(value)
+      @handle.line_width(Float(value))
+      self
+    end
+
+    def save(path)
+      @handle.save(path.to_s)
+      self
+    end
+  end
+
+  class << self
+    # 3D scatter: x, y, z are 1-D vectors of equal length.
+    def scatter3d(x, y, z)
+      Plot3D.new(_scatter3d(_d(x), _d(y), _d(z)))
+    end
+
+    # 3D line: x, y, z are 1-D vectors of equal length.
+    def line3d(x, y, z)
+      Plot3D.new(_line3d(_d(x), _d(y), _d(z)))
+    end
+
+    # 3D surface: x (nx) and y (ny) are 1-D axes; z is a (ny x nx) 2-D grid.
+    def surface(x, y, z)
+      Plot3D.new(_surface(_d(x), _d(y), _m(z)))
+    end
+
+    # 3D wireframe: same inputs as #surface.
+    def wireframe(x, y, z)
+      Plot3D.new(_wireframe(_d(x), _d(y), _m(z)))
+    end
+
+    private
+
+    # Reuse Plot's data coercion (Array / Numo / Polars::Series) for 3D inputs.
+    def _d(v)
+      Plot.allocate.send(:coerce_data, v)
+    end
+
+    def _m(v)
+      Plot.allocate.send(:coerce_matrix, v)
+    end
+  end
+
   # Start a new plot.
   #
   # @return [Ruviz::Plot]

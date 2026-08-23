@@ -130,6 +130,22 @@ Ruviz.subplots(1, 2, 960, 440)        # rows, cols, width_px, height_px
 `subplot_at(index, plot)` (row-major flat index) · `save(path)`.
 See `examples/subplots.rb`.
 
+### 3D
+
+Standalone 3D figures (their own builder + `save`, raster output):
+
+```ruby
+Ruviz.scatter3d(x, y, z).title("3D").zlabel("z").marker(:circle).color("blue").save("s.png")
+Ruviz.line3d(x, y, z).line_width(2).save("l.png")
+Ruviz.surface(x, y, z_grid).zlabel("z").save("f.png")   # z_grid is (y.len x x.len)
+Ruviz.wireframe(x, y, z_grid).save("w.png")
+```
+
+`scatter3d` / `line3d` take three 1-D vectors; `surface` / `wireframe` take 1-D
+`x` (nx) and `y` (ny) axes and a 2-D `z` grid. All accept `title` `xlabel`
+`ylabel` `zlabel` `color`; scatter also `marker` / `marker_size`, line/wireframe
+also `line_width`. See `examples/plot3d.rb`.
+
 ## Roadmap
 
 The binding covers the common plot types; several `ruviz` crate APIs are not

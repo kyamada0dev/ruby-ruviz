@@ -17,8 +17,8 @@ use magnus::typed_data::Obj;
 use ruviz::core::annotation::{ShapeStyle, TextStyle};
 use ruviz::core::PlottingError;
 use ruviz::prelude::{
-    subplots, AxisScale, Color, HistogramConfig, IntoPlot, LegendPosition, LineStyle, MarkerStyle,
-    Plot, SubplotFigure,
+    line3d, scatter3d, subplots, surface, wireframe, AxisScale, Color, HistogramConfig, IntoPlot,
+    LegendPosition, LineStyle, MarkerStyle, Plot, SubplotFigure,
 };
 use ruviz::render::Theme;
 
@@ -1446,6 +1446,155 @@ impl SubplotHandle {
     }
 }
 
+// ---- 3D plots (scatter3d / line3d / surface / wireframe) ------------------
+
+#[derive(Clone, Copy, PartialEq)]
+enum Plot3DKind {
+    Scatter,
+    Line,
+    Surface,
+    Wireframe,
+}
+
+#[derive(Default)]
+struct Plot3DState {
+    x: Vec<f64>,
+    y: Vec<f64>,
+    z1: Vec<f64>,           // scatter3d / line3d
+    z2: Vec<Vec<f64>>,      // surface / wireframe
+    title: Option<String>,
+    xlabel: Option<String>,
+    ylabel: Option<String>,
+    zlabel: Option<String>,
+    color: Option<Color>,
+    marker: Option<MarkerStyle>,
+    marker_size: Option<f32>,
+    line_width: Option<f32>,
+}
+
+#[magnus::wrap(class = "Ruviz::Plot3DHandle", free_immediately, size)]
+struct Plot3DHandle {
+    kind: Plot3DKind,
+    state: RefCell<Plot3DState>,
+}
+
+impl Plot3DHandle {
+    fn new_xyz(kind: Plot3DKind, x: Value, y: Value, z: Value) -> Result<Self, Error> {
+        let x = extract_f64_vec(x)?;
+        let y = extract_f64_vec(y)?;
+        let z1 = extract_f64_vec(z)?;
+        if x.len() != y.len() || x.len() != z1.len() {
+            return Err(arg_err("scatter3d/line3d: x, y, z must have the same length"));
+        }
+        Ok(Plot3DHandle {
+            kind,
+            state: RefCell::new(Plot3DState { x, y, z1, ..Default::default() }),
+        })
+    }
+
+    fn new_grid(kind: Plot3DKind, x: Value, y: Value, z: Value) -> Result<Self, Error> {
+        let x = extract_f64_vec(x)?;
+        let y = extract_f64_vec(y)?;
+        let z2 = extract_f64_matrix(z)?;
+        if z2.len() != y.len() || z2.iter().any(|r| r.len() != x.len()) {
+            return Err(arg_err(
+                "surface/wireframe: z must be a (y.len x x.len) 2-D grid",
+            ));
+        }
+        Ok(Plot3DHandle {
+            kind,
+            state: RefCell::new(Plot3DState { x, y, z2, ..Default::default() }),
+        })
+    }
+
+    fn scatter3d(x: Value, y: Value, z: Value) -> Result<Self, Error> {
+        Self::new_xyz(Plot3DKind::Scatter, x, y, z)
+    }
+    fn line3d(x: Value, y: Value, z: Value) -> Result<Self, Error> {
+        Self::new_xyz(Plot3DKind::Line, x, y, z)
+    }
+    fn surface(x: Value, y: Value, z: Value) -> Result<Self, Error> {
+        Self::new_grid(Plot3DKind::Surface, x, y, z)
+    }
+    fn wireframe(x: Value, y: Value, z: Value) -> Result<Self, Error> {
+        Self::new_grid(Plot3DKind::Wireframe, x, y, z)
+    }
+
+    fn title(&self, s: String) -> Result<(), Error> {
+        self.state.borrow_mut().title = Some(s);
+        Ok(())
+    }
+    fn xlabel(&self, s: String) -> Result<(), Error> {
+        self.state.borrow_mut().xlabel = Some(s);
+        Ok(())
+    }
+    fn ylabel(&self, s: String) -> Result<(), Error> {
+        self.state.borrow_mut().ylabel = Some(s);
+        Ok(())
+    }
+    fn zlabel(&self, s: String) -> Result<(), Error> {
+        self.state.borrow_mut().zlabel = Some(s);
+        Ok(())
+    }
+    fn color(&self, c: String) -> Result<(), Error> {
+        self.state.borrow_mut().color = opt_color(Some(c))?;
+        Ok(())
+    }
+    fn marker(&self, m: String) -> Result<(), Error> {
+        self.state.borrow_mut().marker = Some(parse_marker(&m)?);
+        Ok(())
+    }
+    fn marker_size(&self, s: f64) -> Result<(), Error> {
+        self.state.borrow_mut().marker_size = Some(s as f32);
+        Ok(())
+    }
+    fn line_width(&self, w: f64) -> Result<(), Error> {
+        self.state.borrow_mut().line_width = Some(w as f32);
+        Ok(())
+    }
+
+    fn save(&self, path: String) -> Result<(), Error> {
+        let st = self.state.borrow();
+        macro_rules! common {
+            ($b:expr) => {{
+                let mut b = $b;
+                if let Some(t) = &st.title { b = b.title(t.clone()); }
+                if let Some(s) = &st.xlabel { b = b.xlabel(s.clone()); }
+                if let Some(s) = &st.ylabel { b = b.ylabel(s.clone()); }
+                if let Some(s) = &st.zlabel { b = b.zlabel(s.clone()); }
+                b
+            }};
+        }
+        let result = match self.kind {
+            Plot3DKind::Scatter => {
+                let mut b = common!(scatter3d(&st.x, &st.y, &st.z1));
+                if let Some(c) = st.color { b = b.color(c); }
+                if let Some(m) = st.marker { b = b.marker(m); }
+                if let Some(s) = st.marker_size { b = b.marker_size(s); }
+                b.save(&path)
+            }
+            Plot3DKind::Line => {
+                let mut b = common!(line3d(&st.x, &st.y, &st.z1));
+                if let Some(c) = st.color { b = b.color(c); }
+                if let Some(w) = st.line_width { b = b.line_width(w); }
+                b.save(&path)
+            }
+            Plot3DKind::Surface => {
+                let mut b = common!(surface(&st.x, &st.y, &st.z2));
+                if let Some(c) = st.color { b = b.color(c); }
+                b.save(&path)
+            }
+            Plot3DKind::Wireframe => {
+                let mut b = common!(wireframe(&st.x, &st.y, &st.z2));
+                if let Some(c) = st.color { b = b.color(c); }
+                if let Some(w) = st.line_width { b = b.line_width(w); }
+                b.save(&path)
+            }
+        };
+        result.map_err(render_err)
+    }
+}
+
 fn hello() -> String {
     format!("ruviz-ruby native extension loaded (v{BINDING_VERSION})")
 }
@@ -1503,6 +1652,21 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     sub.define_method("subplot", method!(SubplotHandle::subplot, 3))?;
     sub.define_method("subplot_at", method!(SubplotHandle::subplot_at, 2))?;
     sub.define_method("save", method!(SubplotHandle::save, 1))?;
+
+    let p3 = module.define_class("Plot3DHandle", ruby.class_object())?;
+    module.define_singleton_method("_scatter3d", function!(Plot3DHandle::scatter3d, 3))?;
+    module.define_singleton_method("_line3d", function!(Plot3DHandle::line3d, 3))?;
+    module.define_singleton_method("_surface", function!(Plot3DHandle::surface, 3))?;
+    module.define_singleton_method("_wireframe", function!(Plot3DHandle::wireframe, 3))?;
+    p3.define_method("title", method!(Plot3DHandle::title, 1))?;
+    p3.define_method("xlabel", method!(Plot3DHandle::xlabel, 1))?;
+    p3.define_method("ylabel", method!(Plot3DHandle::ylabel, 1))?;
+    p3.define_method("zlabel", method!(Plot3DHandle::zlabel, 1))?;
+    p3.define_method("color", method!(Plot3DHandle::color, 1))?;
+    p3.define_method("marker", method!(Plot3DHandle::marker, 1))?;
+    p3.define_method("marker_size", method!(Plot3DHandle::marker_size, 1))?;
+    p3.define_method("line_width", method!(Plot3DHandle::line_width, 1))?;
+    p3.define_method("save", method!(Plot3DHandle::save, 1))?;
 
     Ok(())
 }
