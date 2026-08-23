@@ -125,6 +125,12 @@ Ruviz.subplots(1, 2, 960, 440)        # rows, cols, width_px, height_px
 `subplot_at(index, plot)` (row-major flat index) · `save(path)`.
 See `examples/subplots.rb`.
 
+## Roadmap
+
+The binding covers the common plot types; several `ruviz` crate APIs are not
+wrapped yet (more series types, composite figures, colorbars, DPI/bytes output,
+3D). See [`docs/TODO.md`](docs/TODO.md) for the backlog.
+
 ## Errors
 
 Invalid arguments raise `ArgumentError`; ruviz render/IO failures raise
