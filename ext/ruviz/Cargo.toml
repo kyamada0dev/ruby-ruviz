@@ -21,4 +21,4 @@ rb-sys = "0.9"
 #
 # Depend on the published crate (not a local path) so this gem is buildable when
 # bundled from git in another project.
-ruviz = { version = "0.11", default-features = false, features = ["parallel", "pdf", "3d"] }
+ruviz = { version = "0.14", default-features = false, features = ["parallel", "pdf", "3d"] }

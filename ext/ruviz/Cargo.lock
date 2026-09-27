@@ -917,9 +917,9 @@ dependencies = [
 
 [[package]]
 name = "ruviz"
-version = "0.11.0"
+version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "edd0720a066df5dbda806287203ba61d073131efe910032b330bd15b29018832"
+checksum = "5800a38ecc91758d8cccc97b03d944468390a1478d33089066c1331d3f54756c"
 dependencies = [
  "base64",
  "cosmic-text",
@@ -928,6 +928,7 @@ dependencies = [
  "image",
  "log",
  "palette",
+ "png 0.18.1",
  "rayon",
  "svg2pdf",
  "swash",
@@ -936,6 +937,10 @@ dependencies = [
  "tiny-skia 0.12.0",
  "tiny-skia-path 0.12.0",
  "ttf-parser",
+ "unicode-bidi",
+ "unicode-linebreak",
+ "unicode-script",
+ "unicode-segmentation",
  "unicode-width",
  "windows-sys",
 ]
